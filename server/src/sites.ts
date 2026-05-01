@@ -17,17 +17,19 @@ export interface Site {
   updatedAt: number;
 }
 
+const isUserSiteDir = (name: string): boolean => !name.startsWith(".");
+
 export async function listSites(): Promise<Site[]> {
   await mkdir(config.sitesDir, { recursive: true });
   const entries = await readdir(config.sitesDir, { withFileTypes: true });
   const sites: Site[] = [];
   for (const e of entries) {
-    if (!e.isDirectory()) continue;
+    if (!e.isDirectory() || !isUserSiteDir(e.name)) continue;
     const dir = path.join(config.sitesDir, e.name);
     const st = await stat(dir);
     sites.push({
       name: e.name,
-      url: `https://${e.name}.${config.baseDomain}`,
+      url: `${config.scheme}://${e.name}.${config.baseDomain}`,
       size: await dirSize(dir),
       updatedAt: st.mtimeMs,
     });
@@ -49,33 +51,45 @@ async function dirSize(dir: string): Promise<number> {
 export async function deploySite(name: string, zipFile: File): Promise<void> {
   if (!validateName(name)) throw new Error("Nom invalide (a-z, 0-9, -)");
 
+  await mkdir(config.sitesDir, { recursive: true });
+
   const target = path.join(config.sitesDir, name);
-  const tmpZip = path.join("/tmp", `multiweb-${name}-${Date.now()}.zip`);
-  const tmpDir = path.join("/tmp", `multiweb-${name}-${Date.now()}-extract`);
+  const stamp = Date.now();
+  const tmpZip = path.join(config.sitesDir, `.zip-${name}-${stamp}.zip`);
+  const tmpDir = path.join(config.sitesDir, `.tmp-${name}-${stamp}`);
 
-  await writeFile(tmpZip, new Uint8Array(await zipFile.arrayBuffer()));
-  await mkdir(tmpDir, { recursive: true });
+  try {
+    await writeFile(tmpZip, new Uint8Array(await zipFile.arrayBuffer()));
+    await mkdir(tmpDir, { recursive: true });
 
-  const proc = Bun.spawn(["unzip", "-q", "-o", tmpZip, "-d", tmpDir], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const exit = await proc.exited;
-  await rm(tmpZip, { force: true });
+    const proc = Bun.spawn(["unzip", "-q", "-o", tmpZip, "-d", tmpDir], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const exit = await proc.exited;
 
-  if (exit !== 0) {
-    const err = await new Response(proc.stderr).text();
+    if (exit !== 0) {
+      const err = await new Response(proc.stderr).text();
+      throw new Error(`Échec de l'extraction: ${err.trim() || `exit ${exit}`}`);
+    }
+
+    await cleanZipNoise(tmpDir);
+    await flattenIfSingleDir(tmpDir);
+
+    await rm(target, { recursive: true, force: true });
+    await rename(tmpDir, target);
+  } finally {
+    await rm(tmpZip, { force: true });
     await rm(tmpDir, { recursive: true, force: true });
-    throw new Error(`Échec de l'extraction: ${err.trim() || `exit ${exit}`}`);
   }
 
-  await flattenIfSingleDir(tmpDir);
-
-  await mkdir(config.sitesDir, { recursive: true });
-  await rm(target, { recursive: true, force: true });
-  await rename(tmpDir, target);
-
   await syncCaddy();
+}
+
+async function cleanZipNoise(dir: string): Promise<void> {
+  for (const noise of ["__MACOSX", ".DS_Store"]) {
+    await rm(path.join(dir, noise), { recursive: true, force: true });
+  }
 }
 
 async function flattenIfSingleDir(dir: string): Promise<void> {
@@ -95,4 +109,17 @@ export async function deleteSite(name: string): Promise<void> {
   const target = path.join(config.sitesDir, name);
   await rm(target, { recursive: true, force: true });
   await syncCaddy();
+}
+
+export async function cleanupStaging(): Promise<void> {
+  try {
+    const entries = await readdir(config.sitesDir, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.name.startsWith(".tmp-") || e.name.startsWith(".zip-")) {
+        await rm(path.join(config.sitesDir, e.name), { recursive: true, force: true });
+      }
+    }
+  } catch {
+    /* sitesDir may not exist yet; ignore */
+  }
 }

@@ -8,7 +8,10 @@ const withScheme = (host: string): string =>
 async function listSiteNames(): Promise<string[]> {
   try {
     const entries = await readdir(config.sitesDir, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    return entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name)
+      .sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw err;

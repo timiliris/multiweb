@@ -1,7 +1,7 @@
 import path from "node:path";
 import { config } from "./config.ts";
 import { checkAuth, unauthorized } from "./auth.ts";
-import { listSites, deploySite, deleteSite, validateName } from "./sites.ts";
+import { listSites, deploySite, deleteSite, validateName, cleanupStaging } from "./sites.ts";
 import { syncCaddy } from "./caddy.ts";
 
 const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
@@ -94,6 +94,8 @@ Bun.serve({
 });
 
 console.log(`multiweb listening on http://${config.hostname}:${config.port} (base: ${config.baseDomain})`);
+
+await cleanupStaging();
 
 const initialSync = async (attempt = 1): Promise<void> => {
   try {
