@@ -1,0 +1,18 @@
+[Unit]
+Description=multiweb - private static site hoster
+After=network.target caddy.service
+Wants=caddy.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/multiweb/server
+EnvironmentFile=/etc/multiweb.env
+ExecStart=/usr/local/bin/bun run /opt/multiweb/server/src/index.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

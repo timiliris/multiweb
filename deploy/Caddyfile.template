@@ -1,0 +1,10 @@
+{
+    email __EMAIL__
+}
+
+dash.__BASE_DOMAIN__ {
+    reverse_proxy 127.0.0.1:3000
+    encode gzip
+}
+
+import /etc/caddy/sites.d/*.caddy

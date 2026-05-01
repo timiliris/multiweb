@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#f4eee0">
+  <title>multiweb — édition personnelle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,500;1,9..144,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <section id="login-screen" class="screen login">
+    <div class="login__card">
+      <div class="login__corner login__corner--tl"></div>
+      <div class="login__corner login__corner--tr"></div>
+      <div class="login__corner login__corner--bl"></div>
+      <div class="login__corner login__corner--br"></div>
+
+      <header class="login__masthead fade-in fade-in-1">
+        <div class="login__pretitle">Édition Personnelle · Vol. <em>I</em></div>
+        <h1 class="login__title">multi<em>web</em></h1>
+        <div class="login__rule"></div>
+        <p class="login__tagline">Un dépôt privé pour vos sites statiques.<br>Glissez. Nommez. Publiez.</p>
+      </header>
+
+      <form id="login-form" class="login__form fade-in fade-in-2">
+        <label class="field">
+          <span class="field__label">Clef d'accès</span>
+          <input type="password" name="password" class="field__input" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="btn btn--block">
+          <span class="btn__label">Entrer</span>
+          <span class="btn__arrow">→</span>
+        </button>
+      </form>
+
+      <footer class="login__foot fade-in fade-in-3">
+        <span>—</span> Un seul lecteur : vous <span>—</span>
+      </footer>
+    </div>
+  </section>
+
+  <section id="dashboard-screen" class="screen dash" hidden>
+    <header class="dash__header">
+      <div class="dash__header-left">multiweb · édition n° <span id="meta-edition">—</span></div>
+      <h1 class="dash__title">Sites <em>publiés</em></h1>
+      <div class="dash__header-right">
+        <button id="logout-btn" class="btn-link">Déconnexion ↗</button>
+      </div>
+    </header>
+
+    <div class="dash__masthead-meta">
+      <span id="meta-date">—</span>
+      <span class="dash__masthead-domain">domaine · <span id="meta-domain">—</span></span>
+      <span><span id="meta-count">0</span> entrée<span id="meta-count-s"></span></span>
+    </div>
+
+    <main class="dash__main">
+
+      <section class="section fade-in fade-in-1">
+        <div class="section__head">
+          <span class="section__num">N° 01</span>
+          <h2 class="section__title">Déploiement</h2>
+          <span class="section__rule"></span>
+        </div>
+
+        <form id="deploy-form" class="deploy-grid">
+          <label id="dropzone" class="dropzone">
+            <input type="file" id="file-input" class="dropzone__input" accept=".zip,application/zip">
+            <div class="dropzone__inner">
+              <div class="dropzone__icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 22V8M10 14l6-6 6 6M6 24h20"/>
+                </svg>
+              </div>
+              <span class="dropzone__hint" id="dropzone-hint">Glissez votre archive <em>.zip</em></span>
+              <span class="dropzone__sub" id="dropzone-sub">ou cliquez pour parcourir</span>
+            </div>
+          </label>
+
+          <div class="deploy-form-side">
+            <label class="field">
+              <span class="field__label">Sous-domaine</span>
+              <div class="field__compose">
+                <input type="text" id="site-name" name="name" placeholder="monapp" pattern="[a-z0-9](?:[a-z0-9\-]{0,30}[a-z0-9])?" maxlength="32" required spellcheck="false" autocomplete="off">
+                <span class="field__suffix" id="domain-suffix">.exemple.com</span>
+              </div>
+              <span class="field__help">a–z, 0–9, tirets · 32 caractères max</span>
+            </label>
+            <button type="submit" class="btn btn--block" id="deploy-btn">
+              <span class="btn__label">Publier</span>
+              <span class="btn__arrow">→</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="section fade-in fade-in-2">
+        <div class="section__head">
+          <span class="section__num">N° 02</span>
+          <h2 class="section__title">Sites en service</h2>
+          <span class="section__rule"></span>
+          <span class="section__count" id="sites-count">—</span>
+        </div>
+        <div id="sites-list" class="sites" aria-live="polite"></div>
+      </section>
+
+      <footer class="dash__foot">
+        <div>—</div>
+        <div>multiweb · servi avec <em>Caddy</em> &amp; <em>Bun</em></div>
+        <div>—</div>
+      </footer>
+    </main>
+  </section>
+
+  <div id="toast-host" class="toast-host" aria-live="polite"></div>
+
+  <dialog id="confirm-dialog" class="modal">
+    <form method="dialog" class="modal__card">
+      <h3 class="modal__title" id="confirm-title">Confirmer ?</h3>
+      <p class="modal__body" id="confirm-body">—</p>
+      <div class="modal__actions">
+        <button value="cancel" class="btn btn--ghost btn--sm">Annuler</button>
+        <button value="ok" class="btn btn--danger btn--sm" id="confirm-ok">Confirmer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>
