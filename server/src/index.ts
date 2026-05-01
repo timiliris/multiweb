@@ -19,8 +19,11 @@ import {
   setSiteAuth,
   clearSiteAuth,
   setSiteCustomDomains,
+  setSiteNote,
   addKnownDomain,
   removeKnownDomain,
+  addApiToken,
+  removeApiToken,
 } from "./meta.ts";
 import { listDomains, resolveDomain } from "./domains.ts";
 
@@ -63,11 +66,11 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
   }
 
   if (pathname === "/api/me" && req.method === "GET") {
-    if (!checkAuth(req)) return unauthorized();
+    if (!(await checkAuth(req))) return unauthorized();
     return json({ baseDomain: config.baseDomain });
   }
 
-  if (!checkAuth(req)) return unauthorized();
+  if (!(await checkAuth(req))) return unauthorized();
 
   if (pathname === "/api/sites" && req.method === "GET") {
     return json(await listSites());
@@ -180,6 +183,17 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
       await syncCaddy();
       return json({ ok: true, customDomains: normalized });
     }
+
+    if (sub === "note" && req.method === "PUT") {
+      if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
+      const body = await readJson(req);
+      const raw = typeof body.note === "string" ? body.note : "";
+      if (raw.length > 4000) {
+        return json({ error: "Note trop longue (4000 caractères maximum)" }, { status: 400 });
+      }
+      await setSiteNote(name, raw);
+      return json({ ok: true });
+    }
   }
 
   if (pathname === "/api/domains" && req.method === "GET") {
@@ -222,6 +236,44 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
 
     if (sub === "check" && req.method === "GET") {
       return json(await resolveDomain(domain));
+    }
+  }
+
+  if (pathname === "/api/tokens" && req.method === "GET") {
+    const meta = await readMeta();
+    return json(
+      meta.apiTokens.map((t) => {
+        const out: { id: string; name: string; prefix: string; createdAt: number; lastUsedAt?: number } = {
+          id: t.id,
+          name: t.name,
+          prefix: t.prefix,
+          createdAt: t.createdAt,
+        };
+        if (t.lastUsedAt !== undefined) out.lastUsedAt = t.lastUsedAt;
+        return out;
+      })
+    );
+  }
+
+  if (pathname === "/api/tokens" && req.method === "POST") {
+    const body = await readJson(req);
+    const rawName = typeof body.name === "string" ? body.name.trim() : "";
+    if (!/^[ -~]{1,48}$/.test(rawName)) {
+      return json({ error: "Nom invalide (ASCII imprimable, 1-48 caractères)" }, { status: 400 });
+    }
+    const { token, secret } = await addApiToken(rawName);
+    return json({
+      token: { id: token.id, name: token.name, prefix: token.prefix, createdAt: token.createdAt },
+      secret,
+    });
+  }
+
+  if (pathname.startsWith("/api/tokens/")) {
+    const id = decodeURIComponent(pathname.slice("/api/tokens/".length));
+    if (req.method === "DELETE") {
+      const removed = await removeApiToken(id);
+      if (!removed) return json({ error: "Token introuvable" }, { status: 404 });
+      return json({ ok: true });
     }
   }
 

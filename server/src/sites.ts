@@ -50,6 +50,7 @@ export interface Site {
   title?: string;
   auth?: { user: string };
   customDomains?: string[];
+  note?: string;
 }
 
 const isUserSiteDir = (name: string): boolean => !name.startsWith(".");
@@ -74,6 +75,7 @@ export async function listSites(): Promise<Site[]> {
     if (title !== undefined) site.title = title;
     if (m?.auth) site.auth = { user: m.auth.user };
     if (m?.customDomains && m.customDomains.length > 0) site.customDomains = m.customDomains;
+    if (m?.note) site.note = m.note;
     sites.push(site);
   }
   return sites.sort((a, b) => b.updatedAt - a.updatedAt);

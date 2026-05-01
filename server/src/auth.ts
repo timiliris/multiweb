@@ -1,11 +1,17 @@
 import { config } from "./config.ts";
+import { API_TOKEN_PREFIX, findApiTokenBySecret } from "./meta.ts";
 
-export function checkAuth(req: Request): boolean {
+export async function checkAuth(req: Request): Promise<boolean> {
   const auth = req.headers.get("authorization");
   if (!auth) return false;
   const [scheme, token] = auth.split(" ");
   if (scheme !== "Bearer" || !token) return false;
-  return timingSafeEqual(token, config.password);
+  if (timingSafeEqual(token, config.password)) return true;
+  if (token.startsWith(API_TOKEN_PREFIX)) {
+    const found = await findApiTokenBySecret(token);
+    return found !== undefined;
+  }
+  return false;
 }
 
 function timingSafeEqual(a: string, b: string): boolean {

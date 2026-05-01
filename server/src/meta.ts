@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.ts";
@@ -10,17 +11,28 @@ export interface SiteAuth {
 export interface SiteMeta {
   auth?: SiteAuth;
   customDomains?: string[];
+  note?: string;
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  hash: string;
+  createdAt: number;
+  lastUsedAt?: number;
 }
 
 export interface MetaFile {
   version: 1;
   sites: Record<string, SiteMeta>;
   knownDomains: string[];
+  apiTokens: ApiToken[];
 }
 
 const META_PATH = () => path.join(config.sitesDir, ".multiweb.json");
 
-const empty = (): MetaFile => ({ version: 1, sites: {}, knownDomains: [] });
+const empty = (): MetaFile => ({ version: 1, sites: {}, knownDomains: [], apiTokens: [] });
 
 export async function readMeta(): Promise<MetaFile> {
   try {
@@ -31,6 +43,7 @@ export async function readMeta(): Promise<MetaFile> {
       version: 1,
       sites: parsed.sites as Record<string, SiteMeta>,
       knownDomains: Array.isArray(parsed.knownDomains) ? parsed.knownDomains : [],
+      apiTokens: Array.isArray(parsed.apiTokens) ? (parsed.apiTokens as ApiToken[]) : [],
     };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return empty();
@@ -53,12 +66,19 @@ export async function updateMeta(fn: (meta: MetaFile) => void | Promise<void>): 
   return meta;
 }
 
+function isSiteEntryEmpty(entry: SiteMeta): boolean {
+  if (entry.auth) return false;
+  if (entry.customDomains && entry.customDomains.length > 0) return false;
+  if (entry.note && entry.note.length > 0) return false;
+  return true;
+}
+
 export async function clearSiteAuth(name: string): Promise<void> {
   await updateMeta((meta) => {
     const entry = meta.sites[name];
     if (!entry) return;
     delete entry.auth;
-    if (!entry.auth && (!entry.customDomains || entry.customDomains.length === 0)) {
+    if (isSiteEntryEmpty(entry)) {
       delete meta.sites[name];
     }
   });
@@ -80,7 +100,7 @@ export async function setSiteCustomDomains(name: string, domains: string[]): Pro
     } else {
       entry.customDomains = domains;
     }
-    if (!entry.auth && (!entry.customDomains || entry.customDomains.length === 0)) {
+    if (isSiteEntryEmpty(entry)) {
       delete meta.sites[name];
     } else {
       meta.sites[name] = entry;
@@ -90,6 +110,22 @@ export async function setSiteCustomDomains(name: string, domains: string[]): Pro
       if (!meta.knownDomains.some((k) => k.toLowerCase() === dl)) {
         meta.knownDomains.push(d);
       }
+    }
+  });
+}
+
+export async function setSiteNote(name: string, note: string): Promise<void> {
+  await updateMeta((meta) => {
+    const entry = meta.sites[name] ?? {};
+    if (!note) {
+      delete entry.note;
+    } else {
+      entry.note = note;
+    }
+    if (isSiteEntryEmpty(entry)) {
+      delete meta.sites[name];
+    } else {
+      meta.sites[name] = entry;
     }
   });
 }
@@ -132,6 +168,55 @@ export async function pruneMeta(existingDirs: Set<string>): Promise<void> {
       if (!existingDirs.has(name)) delete meta.sites[name];
     }
   });
+}
+
+export const API_TOKEN_PREFIX = "mwt_";
+
+export async function addApiToken(name: string): Promise<{ token: ApiToken; secret: string }> {
+  const random = randomBytes(32).toString("hex");
+  const secret = `${API_TOKEN_PREFIX}${random}`;
+  const id = randomBytes(4).toString("hex");
+  const prefix = random.slice(0, 8);
+  const hash = await Bun.password.hash(secret, "bcrypt");
+  const token: ApiToken = {
+    id,
+    name,
+    prefix,
+    hash,
+    createdAt: Date.now(),
+  };
+  await updateMeta((meta) => {
+    meta.apiTokens.push(token);
+  });
+  return { token, secret };
+}
+
+export async function removeApiToken(id: string): Promise<boolean> {
+  let removed = false;
+  await updateMeta((meta) => {
+    const before = meta.apiTokens.length;
+    meta.apiTokens = meta.apiTokens.filter((t) => t.id !== id);
+    removed = meta.apiTokens.length < before;
+  });
+  return removed;
+}
+
+export async function findApiTokenBySecret(secret: string): Promise<ApiToken | undefined> {
+  if (!secret.startsWith(API_TOKEN_PREFIX)) return undefined;
+  const meta = await readMeta();
+  for (const token of meta.apiTokens) {
+    const ok = await Bun.password.verify(secret, token.hash).catch(() => false);
+    if (ok) {
+      const id = token.id;
+      const now = Date.now();
+      await updateMeta((m) => {
+        const t = m.apiTokens.find((x) => x.id === id);
+        if (t) t.lastUsedAt = now;
+      });
+      return { ...token, lastUsedAt: now };
+    }
+  }
+  return undefined;
 }
 
 export async function removeStaleTempMeta(): Promise<void> {

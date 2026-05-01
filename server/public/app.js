@@ -15,6 +15,11 @@ const state = {
   detailFile: null,
   domains: [],
   selectedDeployDomain: "",
+  tokens: [],
+  noteDebounce: null,
+  noteSaving: false,
+  noteLastSaved: "",
+  noteSavedTimer: null,
 };
 
 /* ============ UTILS ============ */
@@ -33,6 +38,19 @@ function fmtRelative(ts) {
   if (d < h) return `il y a ${Math.floor(d / min)} min`;
   if (d < day) return `il y a ${Math.floor(d / h)} h`;
   return `il y a ${Math.floor(d / day)} j`;
+}
+
+function fmtRelativeDays(ts) {
+  if (!ts) return "—";
+  const d = Date.now() - ts;
+  const day = 24 * 60 * 60 * 1000;
+  const days = Math.floor(d / day);
+  if (days <= 0) return "aujourd'hui";
+  return `il y a ${days}j`;
+}
+
+function originFromUrl(url) {
+  try { return new URL(url).origin; } catch { return ""; }
 }
 
 function slugify(s) {
@@ -113,7 +131,7 @@ function confirmModal({ title, body, okLabel = "Confirmer" }) {
 
 /* ============ ROUTING ============ */
 
-const SCREENS = ["login-screen", "dashboard-screen", "site-screen", "domains-screen"];
+const SCREENS = ["login-screen", "dashboard-screen", "site-screen", "domains-screen", "tokens-screen"];
 
 function showScreen(id) {
   for (const s of SCREENS) $("#" + s).hidden = s !== id;
@@ -122,6 +140,9 @@ function showScreen(id) {
 function parseRoute() {
   if (location.hash === "#/domains" || location.hash === "#/domains/") {
     return { view: "domains" };
+  }
+  if (location.hash === "#/tokens" || location.hash === "#/tokens/") {
+    return { view: "tokens" };
   }
   const m = location.hash.match(/^#\/site\/([a-z0-9-]+)\/?$/);
   if (m) return { view: "site", name: m[1] };
@@ -154,6 +175,8 @@ async function route() {
     showSiteDetail(r.name);
   } else if (r.view === "domains") {
     await showDomainsPage();
+  } else if (r.view === "tokens") {
+    await showTokensPage();
   } else {
     showScreen("dashboard-screen");
     await refreshDomainsForDeploy();
@@ -294,7 +317,13 @@ function renderSites() {
       ? `<span class="site__pill" title="Domaines personnalisés">+${domainsCount} domaine${domainsCount > 1 ? "s" : ""}</span>`
       : "";
 
+    const origin = originFromUrl(site.url);
+    const faviconHtml = origin
+      ? `<img class="site__favicon" src="${escape(origin)}/favicon.ico" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.style.visibility='hidden';">`
+      : `<span class="site__favicon" aria-hidden="true"></span>`;
+
     el.innerHTML = `
+      ${faviconHtml}
       <div class="site__body">
         <div class="site__row">
           <span class="site__name">${escape(site.name)}</span>
@@ -444,6 +473,19 @@ function populateSiteDetail(site) {
   $("#sd-auth-clear").hidden = !hasAuth;
 
   renderDetailDomains();
+
+  // Load note
+  const noteEl = $("#sd-note");
+  if (noteEl) {
+    const note = typeof site.note === "string" ? site.note : "";
+    noteEl.value = note;
+    state.noteLastSaved = note;
+    if (state.noteDebounce) {
+      clearTimeout(state.noteDebounce);
+      state.noteDebounce = null;
+    }
+    hideNoteSavedIndicator();
+  }
 
   const frame = $("#sd-preview-frame");
   if (frame.dataset.src !== site.url) {
@@ -666,6 +708,83 @@ async function deleteCurrentSite() {
   }
 }
 
+/* ============ NOTES (site detail) ============ */
+
+function showNoteSavedIndicator() {
+  const el = $("#sd-note-saved");
+  if (!el) return;
+  el.hidden = false;
+  // Force reflow to allow transition.
+  void el.offsetWidth;
+  el.classList.add("is-visible");
+  if (state.noteSavedTimer) clearTimeout(state.noteSavedTimer);
+  state.noteSavedTimer = setTimeout(() => {
+    el.classList.remove("is-visible");
+    state.noteSavedTimer = setTimeout(() => {
+      el.hidden = true;
+      state.noteSavedTimer = null;
+    }, 280);
+  }, 1400);
+}
+
+function hideNoteSavedIndicator() {
+  const el = $("#sd-note-saved");
+  if (!el) return;
+  el.classList.remove("is-visible");
+  el.hidden = true;
+  if (state.noteSavedTimer) {
+    clearTimeout(state.noteSavedTimer);
+    state.noteSavedTimer = null;
+  }
+}
+
+async function saveNote() {
+  if (!state.detailName) return;
+  const noteEl = $("#sd-note");
+  if (!noteEl) return;
+  const value = noteEl.value;
+  if (value === state.noteLastSaved) return;
+  if (state.noteSaving) return;
+  state.noteSaving = true;
+  const attempted = value;
+  try {
+    await api(`/api/sites/${encodeURIComponent(state.detailName)}/note`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: attempted }),
+    });
+    state.noteLastSaved = attempted;
+    // Mirror to local sites cache so refreshes don't flicker.
+    const site = getSiteByName(state.detailName);
+    if (site) site.note = attempted;
+    showNoteSavedIndicator();
+  } catch (err) {
+    toast("Note", err.message || "Enregistrement impossible.", "err");
+  } finally {
+    state.noteSaving = false;
+    // If user kept typing during save, schedule another flush.
+    if (noteEl.value !== state.noteLastSaved) {
+      scheduleNoteSave();
+    }
+  }
+}
+
+function scheduleNoteSave() {
+  if (state.noteDebounce) clearTimeout(state.noteDebounce);
+  state.noteDebounce = setTimeout(() => {
+    state.noteDebounce = null;
+    saveNote();
+  }, 800);
+}
+
+function flushNoteSave() {
+  if (state.noteDebounce) {
+    clearTimeout(state.noteDebounce);
+    state.noteDebounce = null;
+  }
+  saveNote();
+}
+
 /* ============ DOMAINS PAGE ============ */
 
 async function fetchDomains() {
@@ -827,6 +946,164 @@ async function checkDomainDns(domain, btn) {
     dnsBox.hidden = false;
   } finally {
     setBtnLoading(btn, false);
+  }
+}
+
+/* ============ TOKENS PAGE ============ */
+
+async function fetchTokens() {
+  const list = await api("/api/tokens");
+  state.tokens = Array.isArray(list) ? list : [];
+  return state.tokens;
+}
+
+async function showTokensPage() {
+  showScreen("tokens-screen");
+  try {
+    await fetchTokens();
+  } catch (err) {
+    toast("Erreur", err.message || "Chargement impossible", "err");
+    return;
+  }
+  renderTokensList();
+  setTimeout(() => $("#token-add-input")?.focus(), 30);
+}
+
+function renderTokensList() {
+  const list = $("#tokens-list");
+  const sub = $("#tokens-page-count");
+  list.innerHTML = "";
+  const total = state.tokens.length;
+  sub.textContent = total === 0
+    ? "Aucun token pour le moment."
+    : `${total} token${total > 1 ? "s" : ""}`;
+
+  if (total === 0) {
+    list.innerHTML = `
+      <div class="empty">
+        <div class="empty__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 2 15 8M17 6l4 4M11 12a4 4 0 1 0-4 4 4 4 0 0 0 4-4ZM7 12 3 16l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="empty__title">Aucun token actif</div>
+        <div class="empty__sub">Créez votre premier token ci-dessus pour automatiser vos déploiements.</div>
+      </div>`;
+    return;
+  }
+
+  state.tokens.forEach((t, i) => {
+    const el = document.createElement("article");
+    el.className = "token-row fade-in";
+    el.style.animationDelay = `${i * 0.03}s`;
+    el.dataset.id = t.id;
+    const created = t.createdAt ? `Créé ${fmtRelativeDays(t.createdAt)}` : "Créé —";
+    const used = t.lastUsedAt ? `Utilisé ${fmtRelativeDays(t.lastUsedAt)}` : "Jamais utilisé";
+    el.innerHTML = `
+      <div class="token-row__main">
+        <div class="token-row__head">
+          <span class="token-row__name">${escape(t.name || "—")}</span>
+          <span class="token-row__prefix">mwt_${escape(t.prefix || "")}…</span>
+        </div>
+        <div class="token-row__meta">
+          <span>${escape(created)}</span>
+          <span class="token-row__meta-sep">·</span>
+          <span>${escape(used)}</span>
+        </div>
+      </div>
+      <div class="token-row__actions">
+        <button class="btn btn--ghost btn--sm" data-action="token-revoke" data-id="${escape(t.id)}" data-name="${escape(t.name || "")}">Révoquer</button>
+      </div>`;
+    list.appendChild(el);
+  });
+}
+
+function buildCurlExample(secret) {
+  const origin = location.origin;
+  return `curl -X POST ${origin}/api/sites \\
+  -H "Authorization: Bearer ${secret}" \\
+  --form name=monapp \\
+  --form file=@dist.zip`;
+}
+
+function showTokenSecret(token, secret) {
+  const dlg = $("#token-secret-dialog");
+  $("#token-secret-value").textContent = secret;
+  $("#token-curl-code").textContent = buildCurlExample(secret);
+  dlg.dataset.secret = secret;
+  if (!dlg.open) dlg.showModal();
+}
+
+function clearTokenSecretDialog() {
+  const dlg = $("#token-secret-dialog");
+  // Wipe DOM + dataset so the secret never lingers.
+  $("#token-secret-value").textContent = "—";
+  $("#token-curl-code").textContent = "—";
+  delete dlg.dataset.secret;
+}
+
+function closeTokenSecretDialog() {
+  const dlg = $("#token-secret-dialog");
+  if (dlg.open) dlg.close();
+  clearTokenSecretDialog();
+}
+
+async function createToken(e) {
+  e.preventDefault();
+  const input = $("#token-add-input");
+  const name = input.value.trim();
+  if (!name) return;
+  const btn = $("#token-add-btn");
+  setBtnLoading(btn, true, "Création…");
+  try {
+    const data = await api("/api/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!data || !data.secret) throw new Error("Réponse invalide.");
+    showTokenSecret(data.token, data.secret);
+    input.value = "";
+    toast("Créé", `Token « ${data.token?.name || name} » prêt.`, "ok");
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function revokeToken(id, name) {
+  const ok = await confirmModal({
+    title: "Révoquer ce token ?",
+    body: `Le token <code>${escape(name || id)}</code> ne pourra plus être utilisé. Cette action est définitive.`,
+    okLabel: "Révoquer",
+  });
+  if (!ok) return;
+  try {
+    await api(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("Révoqué", `Token retiré.`, "ok");
+    await fetchTokens();
+    renderTokensList();
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  }
+}
+
+async function copyText(btn, text, label = "Copié") {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) {
+      const original = btn.innerHTML;
+      btn.classList.add("is-ok");
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>`;
+      setTimeout(() => {
+        btn.classList.remove("is-ok");
+        btn.innerHTML = original;
+      }, 1200);
+    }
+    toast(label, "Copié dans le presse-papiers", "ok");
+  } catch {
+    toast("Erreur", "Impossible de copier.", "err");
   }
 }
 
@@ -1051,6 +1328,44 @@ function bind() {
     if (action === "domain-delete") await deleteDomainFromPage(domain);
     else if (action === "domain-check") await checkDomainDns(domain, btn);
   });
+
+  /* ---- notes (site detail) ---- */
+  const noteEl = $("#sd-note");
+  if (noteEl) {
+    noteEl.addEventListener("input", scheduleNoteSave);
+    noteEl.addEventListener("blur", flushNoteSave);
+  }
+
+  /* ---- tokens page ---- */
+  $("#token-add-form").addEventListener("submit", createToken);
+  $("#tokens-list").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    if (btn.dataset.action === "token-revoke") {
+      await revokeToken(btn.dataset.id, btn.dataset.name);
+    }
+  });
+
+  const secretDlg = $("#token-secret-dialog");
+  if (secretDlg) {
+    $("#token-secret-copy").addEventListener("click", (e) => {
+      const secret = secretDlg.dataset.secret || "";
+      if (secret) copyText(e.currentTarget, secret, "Token copié");
+    });
+    $("#token-curl-copy").addEventListener("click", (e) => {
+      const secret = secretDlg.dataset.secret || "";
+      if (secret) copyText(e.currentTarget, buildCurlExample(secret), "Commande copiée");
+    });
+    $("#token-secret-close").addEventListener("click", closeTokenSecretDialog);
+    $("#token-secret-done").addEventListener("click", closeTokenSecretDialog);
+    secretDlg.addEventListener("close", () => {
+      clearTokenSecretDialog();
+      // Refresh list after dismissal so the new token appears.
+      if (location.hash === "#/tokens" || location.hash === "#/tokens/") {
+        fetchTokens().then(renderTokensList).catch(() => {});
+      }
+    });
+  }
 
   /* ---- prevent accidental file-drop navigation outside dropzones ---- */
   const isFileDrag = (e) => {
