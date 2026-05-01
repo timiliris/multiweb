@@ -323,9 +323,9 @@ function renderSites() {
       : `<span class="site__favicon" aria-hidden="true"></span>`;
 
     el.innerHTML = `
-      ${faviconHtml}
       <div class="site__body">
         <div class="site__row">
+          ${faviconHtml}
           <span class="site__name">${escape(site.name)}</span>
           <span class="site__pill site__pill--live">live</span>
           ${authPill}
