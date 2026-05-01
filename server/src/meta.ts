@@ -15,18 +15,23 @@ export interface SiteMeta {
 export interface MetaFile {
   version: 1;
   sites: Record<string, SiteMeta>;
+  knownDomains: string[];
 }
 
 const META_PATH = () => path.join(config.sitesDir, ".multiweb.json");
 
-const empty = (): MetaFile => ({ version: 1, sites: {} });
+const empty = (): MetaFile => ({ version: 1, sites: {}, knownDomains: [] });
 
 export async function readMeta(): Promise<MetaFile> {
   try {
     const raw = await readFile(META_PATH(), "utf8");
     const parsed = JSON.parse(raw) as Partial<MetaFile>;
     if (!parsed || typeof parsed !== "object" || !parsed.sites) return empty();
-    return { version: 1, sites: parsed.sites as Record<string, SiteMeta> };
+    return {
+      version: 1,
+      sites: parsed.sites as Record<string, SiteMeta>,
+      knownDomains: Array.isArray(parsed.knownDomains) ? parsed.knownDomains : [],
+    };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return empty();
     throw err;
@@ -80,6 +85,29 @@ export async function setSiteCustomDomains(name: string, domains: string[]): Pro
     } else {
       meta.sites[name] = entry;
     }
+    for (const d of domains) {
+      const dl = d.toLowerCase();
+      if (!meta.knownDomains.some((k) => k.toLowerCase() === dl)) {
+        meta.knownDomains.push(d);
+      }
+    }
+  });
+}
+
+export async function addKnownDomain(domain: string): Promise<void> {
+  const dl = domain.toLowerCase();
+  await updateMeta((meta) => {
+    if (!meta.knownDomains.some((k) => k.toLowerCase() === dl)) {
+      meta.knownDomains.push(domain);
+      meta.knownDomains.sort((a, b) => a.localeCompare(b));
+    }
+  });
+}
+
+export async function removeKnownDomain(domain: string): Promise<void> {
+  const dl = domain.toLowerCase();
+  await updateMeta((meta) => {
+    meta.knownDomains = meta.knownDomains.filter((k) => k.toLowerCase() !== dl);
   });
 }
 

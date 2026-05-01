@@ -13,6 +13,8 @@ const state = {
   detailName: null,
   detailDomains: [],
   detailFile: null,
+  domains: [],
+  selectedDeployDomain: "",
 };
 
 /* ============ UTILS ============ */
@@ -111,13 +113,16 @@ function confirmModal({ title, body, okLabel = "Confirmer" }) {
 
 /* ============ ROUTING ============ */
 
-const SCREENS = ["login-screen", "dashboard-screen", "site-screen"];
+const SCREENS = ["login-screen", "dashboard-screen", "site-screen", "domains-screen"];
 
 function showScreen(id) {
   for (const s of SCREENS) $("#" + s).hidden = s !== id;
 }
 
 function parseRoute() {
+  if (location.hash === "#/domains" || location.hash === "#/domains/") {
+    return { view: "domains" };
+  }
   const m = location.hash.match(/^#\/site\/([a-z0-9-]+)\/?$/);
   if (m) return { view: "site", name: m[1] };
   return { view: "dashboard" };
@@ -147,8 +152,11 @@ async function route() {
   }
   if (r.view === "site") {
     showSiteDetail(r.name);
+  } else if (r.view === "domains") {
+    await showDomainsPage();
   } else {
     showScreen("dashboard-screen");
+    await refreshDomainsForDeploy();
   }
 }
 
@@ -658,6 +666,170 @@ async function deleteCurrentSite() {
   }
 }
 
+/* ============ DOMAINS PAGE ============ */
+
+async function fetchDomains() {
+  const list = await api("/api/domains");
+  state.domains = Array.isArray(list) ? list : [];
+  return state.domains;
+}
+
+async function refreshDomainsForDeploy() {
+  try {
+    await fetchDomains();
+  } catch {
+    /* ignore — deploy form falls back to empty select */
+    state.domains = [];
+  }
+  populateDeployDomainSelect();
+}
+
+function populateDeployDomainSelect() {
+  const select = $("#deploy-domain-select");
+  if (!select) return;
+  const free = state.domains.filter((d) => !d.site);
+  const current = state.selectedDeployDomain;
+  const opts = ['<option value="">Aucun — juste auto subdomain</option>'];
+  for (const d of free) {
+    const sel = d.domain === current ? " selected" : "";
+    opts.push(`<option value="${escape(d.domain)}"${sel}>${escape(d.domain)}</option>`);
+  }
+  select.innerHTML = opts.join("");
+  if (current && !free.some((d) => d.domain === current)) {
+    state.selectedDeployDomain = "";
+  }
+}
+
+async function showDomainsPage() {
+  showScreen("domains-screen");
+  try {
+    await fetchDomains();
+  } catch (err) {
+    toast("Erreur", err.message || "Chargement impossible", "err");
+    return;
+  }
+  renderDomainsList();
+  setTimeout(() => $("#domain-add-input")?.focus(), 30);
+}
+
+function renderDomainsList() {
+  const list = $("#domains-list");
+  const sub = $("#domains-page-count");
+  list.innerHTML = "";
+  const total = state.domains.length;
+  const free = state.domains.filter((d) => !d.site).length;
+  sub.textContent = total === 0
+    ? "Aucun domaine pour le moment."
+    : `${total} domaine${total > 1 ? "s" : ""} · ${free} libre${free > 1 ? "s" : ""}`;
+
+  if (total === 0) {
+    list.innerHTML = `
+      <div class="empty">
+        <div class="empty__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>
+          </svg>
+        </div>
+        <div class="empty__title">Aucun domaine enregistré</div>
+        <div class="empty__sub">Ajoutez votre premier domaine ci-dessus.</div>
+      </div>`;
+    return;
+  }
+
+  state.domains.forEach((d, i) => {
+    const el = document.createElement("article");
+    el.className = "domain-row fade-in";
+    el.style.animationDelay = `${i * 0.03}s`;
+    el.dataset.domain = d.domain;
+    const status = d.site
+      ? `<span class="domain-row__pill domain-row__pill--assigned">→ <a href="#/site/${encodeURIComponent(d.site)}">${escape(d.site)}</a></span>`
+      : `<span class="domain-row__pill domain-row__pill--free">Libre</span>`;
+    const removeBtn = d.site
+      ? ""
+      : `<button class="btn btn--ghost btn--sm" data-action="domain-delete" data-domain="${escape(d.domain)}">Retirer</button>`;
+    el.innerHTML = `
+      <div class="domain-row__main">
+        <div class="domain-row__head">
+          <span class="domain-row__name">${escape(d.domain)}</span>
+          ${status}
+        </div>
+        <div class="domain-row__dns" id="dns-${escape(d.domain)}" hidden></div>
+      </div>
+      <div class="domain-row__actions">
+        <button class="btn btn--ghost btn--sm" data-action="domain-check" data-domain="${escape(d.domain)}">Vérifier DNS</button>
+        ${removeBtn}
+      </div>`;
+    list.appendChild(el);
+  });
+}
+
+async function addDomainFromPage(e) {
+  e.preventDefault();
+  const input = $("#domain-add-input");
+  const domain = input.value.trim().toLowerCase();
+  if (!domain) return;
+  const btn = $("#domain-add-btn");
+  setBtnLoading(btn, true, "Ajout…");
+  try {
+    await api("/api/domains", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain }),
+    });
+    toast("Ajouté", `${domain} enregistré.`, "ok");
+    input.value = "";
+    await fetchDomains();
+    renderDomainsList();
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function deleteDomainFromPage(domain) {
+  const ok = await confirmModal({
+    title: "Retirer ce domaine ?",
+    body: `<code>${escape(domain)}</code> sera retiré du registre. Cette action est sans effet sur le DNS.`,
+    okLabel: "Retirer",
+  });
+  if (!ok) return;
+  try {
+    await api(`/api/domains/${encodeURIComponent(domain)}`, { method: "DELETE" });
+    toast("Retiré", `${domain} retiré du registre.`, "ok");
+    await fetchDomains();
+    renderDomainsList();
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  }
+}
+
+async function checkDomainDns(domain, btn) {
+  const dnsBox = document.getElementById(`dns-${domain}`);
+  if (!dnsBox) return;
+  setBtnLoading(btn, true, "Vérification…");
+  try {
+    const data = await api(`/api/domains/${encodeURIComponent(domain)}/check`);
+    const rows = [];
+    if (data.error && data.ips.length === 0 && data.ipv6.length === 0) {
+      rows.push(`<div class="domain-row__dns-row"><span class="domain-row__dns-label">Erreur</span><span class="domain-row__dns-value domain-row__dns-value--err">${escape(data.error)}</span></div>`);
+    }
+    if (data.ips.length > 0) {
+      rows.push(`<div class="domain-row__dns-row"><span class="domain-row__dns-label">A</span><span class="domain-row__dns-value">${data.ips.map(escape).join(", ")}</span></div>`);
+    }
+    if (data.ipv6.length > 0) {
+      rows.push(`<div class="domain-row__dns-row"><span class="domain-row__dns-label">AAAA</span><span class="domain-row__dns-value">${data.ipv6.map(escape).join(", ")}</span></div>`);
+    }
+    dnsBox.innerHTML = rows.join("");
+    dnsBox.hidden = false;
+  } catch (err) {
+    dnsBox.innerHTML = `<div class="domain-row__dns-row"><span class="domain-row__dns-label">Err</span><span class="domain-row__dns-value domain-row__dns-value--err">${escape(err.message)}</span></div>`;
+    dnsBox.hidden = false;
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
 /* ============ HELPERS ============ */
 
 function setBtnLoading(btn, loading, label) {
@@ -728,18 +900,45 @@ function bind() {
     const name = $("#site-name").value.toLowerCase().trim();
     const file = state.selectedFile;
     if (!file) { toast("Manquant", "Choisissez d'abord une archive .zip.", "err"); return; }
+    const customDomain = $("#deploy-domain-select")?.value || "";
     const btn = $("#deploy-btn");
     setBtnLoading(btn, true, "Publication…");
     try {
       const data = await deploy(name, file);
-      toast("Publié", `En ligne : ${data.url}`, "ok");
+      let detail = data.url;
+      if (customDomain) {
+        try {
+          await api(`/api/sites/${encodeURIComponent(name)}/domains`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ domains: [customDomain] }),
+          });
+          detail = `https://${customDomain}`;
+        } catch (err) {
+          toast("Domaine non assigné", err.message, "err");
+        }
+      }
+      toast("Publié", `En ligne : ${detail}`, "ok");
       $("#deploy-form").reset();
       setSelectedFile(null);
+      state.selectedDeployDomain = "";
       await refreshSites();
+      await refreshDomainsForDeploy();
     } catch (err) {
       toast("Erreur", err.message, "err");
     } finally {
       setBtnLoading(btn, false);
+    }
+  });
+
+  $("#deploy-domain-select").addEventListener("change", (e) => {
+    state.selectedDeployDomain = e.target.value;
+    if (e.target.value) {
+      const slug = $("#site-name");
+      if (!slug.value) {
+        const nameFromDomain = e.target.value.split(".")[0].toLowerCase().replace(/[^a-z0-9-]/g, "");
+        if (nameFromDomain) slug.value = nameFromDomain.slice(0, 32);
+      }
     }
   });
 
@@ -840,6 +1039,18 @@ function bind() {
   });
 
   $("#sd-delete-btn").addEventListener("click", deleteCurrentSite);
+
+  /* ---- domains page ---- */
+  $("#domain-add-form").addEventListener("submit", addDomainFromPage);
+  $("#domains-list").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const domain = btn.dataset.domain;
+    if (!domain) return;
+    if (action === "domain-delete") await deleteDomainFromPage(domain);
+    else if (action === "domain-check") await checkDomainDns(domain, btn);
+  });
 
   /* ---- prevent accidental file-drop navigation outside dropzones ---- */
   const isFileDrag = (e) => {

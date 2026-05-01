@@ -65,6 +65,7 @@
         <span class="brand__sub" id="meta-domain">—</span>
       </a>
       <div class="topbar__actions">
+        <a href="#/domains" class="btn btn--ghost btn--sm">Domaines</a>
         <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer de thème">
           <svg class="theme-toggle__icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           <svg class="theme-toggle__icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
@@ -128,6 +129,13 @@
               </div>
               <span class="field__help">a–z, 0–9, tirets · 32 caractères max</span>
             </label>
+            <label class="field" id="deploy-domain-field">
+              <span class="field__label">Domaine personnalisé <span class="field__label-hint">(optionnel)</span></span>
+              <select id="deploy-domain-select" class="input input--mono">
+                <option value="">Aucun — juste auto subdomain</option>
+              </select>
+              <span class="field__help">Gérer la liste depuis <a href="#/domains" class="link-inline">Domaines</a></span>
+            </label>
             <button type="submit" class="btn btn--primary btn--block" id="deploy-btn">
               <span class="btn__label">Publier</span>
               <span class="btn__icon" aria-hidden="true">→</span>
@@ -163,6 +171,7 @@
         <span class="topbar__breadcrumb-name" id="sd-breadcrumb">—</span>
       </div>
       <div class="topbar__actions">
+        <a href="#/domains" class="btn btn--ghost btn--sm">Domaines</a>
         <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer de thème">
           <svg class="theme-toggle__icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           <svg class="theme-toggle__icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
@@ -318,6 +327,59 @@
             <span class="btn__label">Supprimer ce site</span>
           </button>
         </div>
+      </section>
+    </main>
+  </section>
+
+  <section id="domains-screen" class="screen domains" hidden>
+    <header class="topbar">
+      <a href="#/" class="back-link" data-action="back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <div class="topbar__breadcrumb">
+        <span class="brand__sub">multiweb · </span>
+        <span class="topbar__breadcrumb-name">Domaines</span>
+      </div>
+      <div class="topbar__actions">
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer de thème">
+          <svg class="theme-toggle__icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="theme-toggle__icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+        </button>
+        <button type="button" class="btn btn--ghost btn--sm" data-action="logout">Déconnexion</button>
+      </div>
+    </header>
+
+    <main class="dash__main">
+      <header class="hero fade-in fade-in-1">
+        <div class="hero__title">Mes domaines</div>
+        <p class="hero__sub">Domaines personnalisés enregistrés sur ce serveur. Configurez d'abord un enregistrement A pointant vers votre VPS.</p>
+      </header>
+
+      <section class="card fade-in fade-in-2">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Ajouter un domaine</h2>
+            <p class="card__sub">Une fois enregistré, le domaine apparaît dans le sélecteur lors de la création d'un site.</p>
+          </div>
+        </div>
+        <form id="domain-add-form" class="domain-add">
+          <input type="text" id="domain-add-input" class="input input--mono" placeholder="exemple.com" autocomplete="off" spellcheck="false" required>
+          <button type="submit" class="btn btn--primary btn--sm" id="domain-add-btn">
+            <span class="btn__label">Ajouter</span>
+            <span class="btn__icon" aria-hidden="true">→</span>
+          </button>
+        </form>
+      </section>
+
+      <section class="card fade-in fade-in-3">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Enregistrés</h2>
+            <p class="card__sub" id="domains-page-count">—</p>
+          </div>
+        </div>
+        <div id="domains-list" class="domains-list" aria-live="polite"></div>
       </section>
     </main>
   </section>

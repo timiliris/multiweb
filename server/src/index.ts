@@ -19,7 +19,10 @@ import {
   setSiteAuth,
   clearSiteAuth,
   setSiteCustomDomains,
+  addKnownDomain,
+  removeKnownDomain,
 } from "./meta.ts";
+import { listDomains, resolveDomain } from "./domains.ts";
 
 const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
 
@@ -176,6 +179,49 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
       await setSiteCustomDomains(name, normalized);
       await syncCaddy();
       return json({ ok: true, customDomains: normalized });
+    }
+  }
+
+  if (pathname === "/api/domains" && req.method === "GET") {
+    return json(await listDomains());
+  }
+
+  if (pathname === "/api/domains" && req.method === "POST") {
+    const body = await readJson(req);
+    const domain = String(body.domain ?? "").trim().toLowerCase();
+    if (!validateCustomDomain(domain)) {
+      return json({ error: "Domaine invalide" }, { status: 400 });
+    }
+    if (isSubdomainOfBase(domain)) {
+      return json({ error: `Domaine réservé (sous-domaine de ${config.baseDomain})` }, { status: 400 });
+    }
+    await addKnownDomain(domain);
+    return json({ ok: true, domain });
+  }
+
+  if (pathname.startsWith("/api/domains/")) {
+    const rest = pathname.slice("/api/domains/".length);
+    const [rawDomain, ...subParts] = rest.split("/");
+    const domain = decodeURIComponent(rawDomain).toLowerCase();
+    const sub = subParts.join("/");
+
+    if (!validateCustomDomain(domain)) {
+      return json({ error: "Domaine invalide" }, { status: 400 });
+    }
+
+    if (sub === "" && req.method === "DELETE") {
+      const meta = await readMeta();
+      for (const [siteName, m] of Object.entries(meta.sites)) {
+        if ((m.customDomains ?? []).some((d) => d.toLowerCase() === domain)) {
+          return json({ error: `Domaine assigné à « ${siteName} » — retirez-le d'abord du site.` }, { status: 409 });
+        }
+      }
+      await removeKnownDomain(domain);
+      return json({ ok: true });
+    }
+
+    if (sub === "check" && req.method === "GET") {
+      return json(await resolveDomain(domain));
     }
   }
 
