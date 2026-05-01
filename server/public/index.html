@@ -55,7 +55,7 @@
 
   <section id="dashboard-screen" class="screen dash" hidden>
     <header class="topbar">
-      <div class="brand">
+      <a href="#/" class="brand brand--link" data-action="home">
         <svg class="brand__mark" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="0" y="0" width="24" height="24" rx="6" class="brand__mark-bg"/>
           <circle cx="17" cy="17" r="3" class="brand__mark-dot"/>
@@ -63,13 +63,13 @@
         <span class="brand__name">multiweb</span>
         <span class="brand__divider"></span>
         <span class="brand__sub" id="meta-domain">—</span>
-      </div>
+      </a>
       <div class="topbar__actions">
         <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer de thème">
           <svg class="theme-toggle__icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           <svg class="theme-toggle__icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
         </button>
-        <button type="button" id="logout-btn" class="btn btn--ghost btn--sm">Déconnexion</button>
+        <button type="button" class="btn btn--ghost btn--sm" data-action="logout">Déconnexion</button>
       </div>
     </header>
 
@@ -152,6 +152,176 @@
     </main>
   </section>
 
+  <section id="site-screen" class="screen site-detail" hidden>
+    <header class="topbar">
+      <a href="#/" class="back-link" data-action="back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <div class="topbar__breadcrumb">
+        <span class="brand__sub">multiweb · </span>
+        <span class="topbar__breadcrumb-name" id="sd-breadcrumb">—</span>
+      </div>
+      <div class="topbar__actions">
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer de thème">
+          <svg class="theme-toggle__icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="theme-toggle__icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+        </button>
+        <button type="button" class="btn btn--ghost btn--sm" data-action="logout">Déconnexion</button>
+      </div>
+    </header>
+
+    <main class="dash__main site-detail__main">
+      <header class="site-detail__header fade-in fade-in-1">
+        <div class="site-detail__title-block">
+          <div class="site-detail__name-row">
+            <h1 class="site-detail__name" id="sd-name">—</h1>
+            <span class="site__pill site__pill--live">live</span>
+            <span class="site__pill" id="sd-auth-pill" hidden>
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>protégé</span>
+            </span>
+          </div>
+          <p class="site-detail__title" id="sd-title" hidden>—</p>
+          <div class="site-detail__url-row">
+            <a class="site-detail__url" id="sd-url" target="_blank" rel="noopener">—</a>
+            <button type="button" class="icon-btn" id="sd-copy" data-url="" title="Copier l'URL" aria-label="Copier l'URL">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="11" height="11" rx="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="site-detail__quick-stats">
+          <div class="quick-stat">
+            <div class="quick-stat__label">Stockage</div>
+            <div class="quick-stat__value" id="sd-size">—</div>
+          </div>
+          <div class="quick-stat">
+            <div class="quick-stat__label">Dernier déploiement</div>
+            <div class="quick-stat__value" id="sd-deployed">—</div>
+          </div>
+        </div>
+      </header>
+
+      <section class="card fade-in fade-in-2">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Aperçu</h2>
+            <p class="card__sub" id="sd-preview-sub">Vue en direct du site.</p>
+          </div>
+          <a href="#" id="sd-preview-open" target="_blank" rel="noopener" class="btn-link">Ouvrir ↗</a>
+        </div>
+        <div class="preview">
+          <iframe id="sd-preview-frame" class="preview__frame" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" loading="lazy" title="Aperçu du site"></iframe>
+        </div>
+      </section>
+
+      <section class="card fade-in fade-in-2">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Redéployer</h2>
+            <p class="card__sub">Remplace le contenu de ce site par une nouvelle archive.</p>
+          </div>
+        </div>
+        <label id="sd-dropzone" class="dropzone">
+          <input type="file" id="sd-file-input" class="dropzone__input" accept=".zip,application/zip">
+          <div class="dropzone__inner">
+            <div class="dropzone__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+              </svg>
+            </div>
+            <div class="dropzone__text">
+              <div class="dropzone__hint" id="sd-dropzone-hint">Glissez la nouvelle version .zip</div>
+              <div class="dropzone__sub" id="sd-dropzone-sub">Ou cliquez pour parcourir</div>
+            </div>
+          </div>
+        </label>
+      </section>
+
+      <section class="card fade-in fade-in-3">
+        <div class="card__head">
+          <h2 class="card__title">Réglages</h2>
+        </div>
+
+        <section class="settings__section">
+          <div class="settings__section-head">
+            <h3 class="settings__section-title">Renommer</h3>
+            <p class="settings__section-sub">Modifie le sous-domaine de ce site.</p>
+          </div>
+          <form id="sd-rename-form" class="settings__row">
+            <div class="input-group">
+              <input type="text" id="sd-rename-input" class="input input--mono" maxlength="32" required spellcheck="false" autocomplete="off">
+              <span class="input-group__suffix" id="sd-rename-suffix">.localhost</span>
+            </div>
+            <button type="submit" class="btn btn--primary btn--sm" id="sd-rename-btn">
+              <span class="btn__label">Renommer</span>
+            </button>
+          </form>
+        </section>
+
+        <div class="settings__divider"></div>
+
+        <section class="settings__section">
+          <div class="settings__section-head">
+            <h3 class="settings__section-title">Mot de passe</h3>
+            <p class="settings__section-sub">Restreint l'accès au site avec une authentification HTTP de base.</p>
+          </div>
+          <label class="settings__checkbox">
+            <input type="checkbox" id="sd-auth-toggle">
+            <span>Protéger ce site</span>
+          </label>
+          <div class="settings__auth-fields" id="sd-auth-fields" hidden>
+            <form id="sd-auth-form" class="settings__grid">
+              <label class="field">
+                <span class="field__label">Identifiant</span>
+                <input type="text" id="sd-auth-user" class="input input--mono" value="admin" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="field">
+                <span class="field__label">Mot de passe</span>
+                <input type="password" id="sd-auth-pass" class="input" autocomplete="new-password" placeholder="••••••••">
+              </label>
+              <div class="settings__row settings__row--end">
+                <button type="button" class="btn btn--ghost btn--sm" id="sd-auth-clear" hidden>Supprimer la protection</button>
+                <button type="submit" class="btn btn--primary btn--sm" id="sd-auth-save">
+                  <span class="btn__label">Enregistrer</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <div class="settings__divider"></div>
+
+        <section class="settings__section">
+          <div class="settings__section-head">
+            <h3 class="settings__section-title">Domaines personnalisés</h3>
+            <p class="settings__section-sub">Configurez d'abord un enregistrement DNS pointant vers ce serveur. Le HTTPS sera provisionné automatiquement.</p>
+          </div>
+          <ul class="settings__domains" id="sd-domains-list"></ul>
+          <form id="sd-domain-form" class="settings__row">
+            <input type="text" id="sd-domain-input" class="input input--mono" placeholder="exemple.com" autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn btn--ghost btn--sm">Ajouter</button>
+          </form>
+        </section>
+      </section>
+
+      <section class="card card--danger fade-in fade-in-3">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title">Zone de danger</h2>
+            <p class="card__sub">La suppression est définitive. Les fichiers et la configuration HTTPS sont retirés du serveur.</p>
+          </div>
+          <button type="button" class="btn btn--danger btn--sm" id="sd-delete-btn">
+            <span class="btn__label">Supprimer ce site</span>
+          </button>
+        </div>
+      </section>
+    </main>
+  </section>
+
   <div id="toast-host" class="toast-host" aria-live="polite"></div>
 
   <dialog id="confirm-dialog" class="modal">
@@ -163,81 +333,6 @@
         <button value="ok" class="btn btn--danger btn--sm" id="confirm-ok">Confirmer</button>
       </div>
     </form>
-  </dialog>
-
-  <dialog id="settings-dialog" class="modal">
-    <div class="modal__card modal__card--lg">
-      <header class="settings__head">
-        <div>
-          <h3 class="modal__title" id="settings-title">Paramètres</h3>
-          <p class="settings__sub" id="settings-sub">—</p>
-        </div>
-        <button type="button" class="modal__close" id="settings-close" aria-label="Fermer">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>
-      </header>
-
-      <section class="settings__section">
-        <div class="settings__section-head">
-          <h4 class="settings__section-title">Renommer</h4>
-          <p class="settings__section-sub">Modifie le sous-domaine de ce site.</p>
-        </div>
-        <form id="settings-rename-form" class="settings__row">
-          <div class="input-group">
-            <input type="text" id="settings-rename-input" class="input input--mono" maxlength="32" required spellcheck="false" autocomplete="off">
-            <span class="input-group__suffix" id="settings-rename-suffix">.localhost</span>
-          </div>
-          <button type="submit" class="btn btn--primary btn--sm" id="settings-rename-btn">
-            <span class="btn__label">Renommer</span>
-          </button>
-        </form>
-      </section>
-
-      <div class="settings__divider"></div>
-
-      <section class="settings__section">
-        <div class="settings__section-head">
-          <h4 class="settings__section-title">Mot de passe</h4>
-          <p class="settings__section-sub">Restreint l'accès au site avec une authentification HTTP de base.</p>
-        </div>
-        <label class="settings__checkbox">
-          <input type="checkbox" id="settings-auth-toggle">
-          <span>Protéger ce site</span>
-        </label>
-        <div class="settings__auth-fields" id="settings-auth-fields" hidden>
-          <form id="settings-auth-form" class="settings__grid">
-            <label class="field">
-              <span class="field__label">Identifiant</span>
-              <input type="text" id="settings-auth-user" class="input input--mono" value="admin" autocomplete="off" spellcheck="false">
-            </label>
-            <label class="field">
-              <span class="field__label">Mot de passe</span>
-              <input type="password" id="settings-auth-pass" class="input" autocomplete="new-password" placeholder="••••••••">
-            </label>
-            <div class="settings__row settings__row--end">
-              <button type="button" class="btn btn--ghost btn--sm" id="settings-auth-clear" hidden>Supprimer la protection</button>
-              <button type="submit" class="btn btn--primary btn--sm" id="settings-auth-save">
-                <span class="btn__label">Enregistrer</span>
-              </button>
-            </div>
-          </form>
-        </div>
-      </section>
-
-      <div class="settings__divider"></div>
-
-      <section class="settings__section">
-        <div class="settings__section-head">
-          <h4 class="settings__section-title">Domaines personnalisés</h4>
-          <p class="settings__section-sub">Configurez d'abord un enregistrement DNS pointant vers ce serveur. Le HTTPS sera provisionné automatiquement.</p>
-        </div>
-        <ul class="settings__domains" id="settings-domains-list"></ul>
-        <form id="settings-domain-form" class="settings__row">
-          <input type="text" id="settings-domain-input" class="input input--mono" placeholder="exemple.com" autocomplete="off" spellcheck="false">
-          <button type="submit" class="btn btn--ghost btn--sm">Ajouter</button>
-        </form>
-      </section>
-    </div>
   </dialog>
 
   <script src="/app.js"></script>

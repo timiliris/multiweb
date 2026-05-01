@@ -10,9 +10,12 @@ const state = {
   sites: [],
   selectedFile: null,
   filter: "",
-  settingsName: null,
-  settingsDomains: [],
+  detailName: null,
+  detailDomains: [],
+  detailFile: null,
 };
+
+/* ============ UTILS ============ */
 
 function fmtSize(b) {
   if (b < 1024) return `${b} o`;
@@ -61,6 +64,8 @@ async function api(path, opts = {}) {
   return data;
 }
 
+/* ============ THEME ============ */
+
 function getTheme() {
   return (
     localStorage.getItem(THEME_KEY) ||
@@ -74,6 +79,8 @@ function setTheme(t) {
 function toggleTheme() {
   setTheme(getTheme() === "dark" ? "light" : "dark");
 }
+
+/* ============ TOAST + CONFIRM ============ */
 
 function toast(label, msg, kind = "info") {
   const host = $("#toast-host");
@@ -102,22 +109,72 @@ function confirmModal({ title, body, okLabel = "Confirmer" }) {
   });
 }
 
-function showLogin() {
-  $("#login-screen").hidden = false;
-  $("#dashboard-screen").hidden = true;
-  setTimeout(() => $("#login-form input[name=password]")?.focus(), 30);
+/* ============ ROUTING ============ */
+
+const SCREENS = ["login-screen", "dashboard-screen", "site-screen"];
+
+function showScreen(id) {
+  for (const s of SCREENS) $("#" + s).hidden = s !== id;
 }
 
-async function showDashboard() {
-  const me = await api("/api/me");
-  state.baseDomain = me.baseDomain;
-  $("#login-screen").hidden = true;
-  $("#dashboard-screen").hidden = false;
-  $("#meta-domain").textContent = me.baseDomain;
-  $("#stat-domain").textContent = me.baseDomain;
-  $("#domain-suffix").textContent = `.${me.baseDomain}`;
-  $("#domain-pill").textContent = me.baseDomain;
-  await refreshSites();
+function parseRoute() {
+  const m = location.hash.match(/^#\/site\/([a-z0-9-]+)\/?$/);
+  if (m) return { view: "site", name: m[1] };
+  return { view: "dashboard" };
+}
+
+async function route() {
+  if (!state.token) {
+    showLogin();
+    return;
+  }
+  if (!state.baseDomain) {
+    try {
+      const me = await api("/api/me");
+      state.baseDomain = me.baseDomain;
+      applyBaseDomain(me.baseDomain);
+    } catch {
+      logout();
+      return;
+    }
+  }
+  const r = parseRoute();
+  try {
+    await refreshSites();
+  } catch (err) {
+    toast("Erreur", err.message || "Chargement impossible", "err");
+    return;
+  }
+  if (r.view === "site") {
+    showSiteDetail(r.name);
+  } else {
+    showScreen("dashboard-screen");
+  }
+}
+
+function navigateHome() {
+  if (location.hash !== "" && location.hash !== "#/") location.hash = "#/";
+  else route();
+}
+function navigateSite(name) {
+  const next = `#/site/${encodeURIComponent(name)}`;
+  if (location.hash !== next) location.hash = next;
+  else route();
+}
+
+/* ============ AUTH FLOW ============ */
+
+function applyBaseDomain(domain) {
+  $("#meta-domain").textContent = domain;
+  $("#stat-domain").textContent = domain;
+  $("#domain-suffix").textContent = `.${domain}`;
+  $("#domain-pill").textContent = domain;
+  $("#sd-rename-suffix").textContent = `.${domain}`;
+}
+
+function showLogin() {
+  showScreen("login-screen");
+  setTimeout(() => $("#login-form input[name=password]")?.focus(), 30);
 }
 
 async function login(password) {
@@ -128,13 +185,25 @@ async function login(password) {
   });
   state.token = data.token;
   localStorage.setItem(TOKEN_KEY, state.token);
-  await showDashboard();
+  state.baseDomain = "";
+  await route();
 }
 
 function logout() {
   state.token = null;
+  state.baseDomain = "";
   localStorage.removeItem(TOKEN_KEY);
+  if (location.hash) {
+    location.hash = "";
+    return;
+  }
   showLogin();
+}
+
+/* ============ SITES LIST ============ */
+
+function getSiteByName(name) {
+  return state.sites.find((s) => s.name === name);
 }
 
 function filterSites(sites, q) {
@@ -200,12 +269,21 @@ function renderSites() {
 
   filtered.forEach((site, i) => {
     const el = document.createElement("article");
-    el.className = "site fade-in";
+    el.className = "site site--clickable fade-in";
     el.style.animationDelay = `${i * 0.04}s`;
     el.dataset.name = site.name;
+    el.tabIndex = 0;
+    el.setAttribute("role", "link");
 
     const titleHtml = site.title && site.title.trim()
       ? `<div class="site__title">${escape(site.title)}</div>`
+      : "";
+    const authPill = site.auth && site.auth.user
+      ? `<span class="site__pill site__pill--protected" title="Protégé par mot de passe">🔒</span>`
+      : "";
+    const domainsCount = Array.isArray(site.customDomains) ? site.customDomains.length : 0;
+    const domainsPill = domainsCount > 0
+      ? `<span class="site__pill" title="Domaines personnalisés">+${domainsCount} domaine${domainsCount > 1 ? "s" : ""}</span>`
       : "";
 
     el.innerHTML = `
@@ -213,11 +291,13 @@ function renderSites() {
         <div class="site__row">
           <span class="site__name">${escape(site.name)}</span>
           <span class="site__pill site__pill--live">live</span>
+          ${authPill}
+          ${domainsPill}
         </div>
         ${titleHtml}
         <div class="site__url-row">
-          <a class="site__url" href="${escape(site.url)}" target="_blank" rel="noopener">${escape(site.url)} ↗</a>
-          <button class="icon-btn" data-action="copy" data-url="${escape(site.url)}" title="Copier l'URL" aria-label="Copier l'URL">
+          <a class="site__url" href="${escape(site.url)}" target="_blank" rel="noopener" data-stop>${escape(site.url)} ↗</a>
+          <button class="icon-btn" data-action="copy" data-url="${escape(site.url)}" data-stop title="Copier l'URL" aria-label="Copier l'URL">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="11" height="11" rx="2"/>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -231,13 +311,7 @@ function renderSites() {
         </div>
       </div>
       <div class="site__actions">
-        <button class="icon-btn" data-action="settings" data-name="${escape(site.name)}" title="Paramètres" aria-label="Paramètres">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
-          </svg>
-        </button>
-        <button class="btn btn--ghost btn--sm" data-action="delete" data-name="${escape(site.name)}">Supprimer</button>
+        <span class="site__chevron" aria-hidden="true">→</span>
       </div>`;
     list.appendChild(el);
   });
@@ -247,23 +321,13 @@ async function refreshSites() {
   const sites = await api("/api/sites");
   state.sites = sites;
   renderSites();
-}
-
-async function deleteSite(name) {
-  const ok = await confirmModal({
-    title: "Supprimer ce site ?",
-    body: `Le site <code>${escape(name)}</code> sera retiré du serveur ainsi que sa configuration HTTPS. Cette action est définitive.`,
-    okLabel: "Supprimer",
-  });
-  if (!ok) return;
-  try {
-    await api(`/api/sites/${encodeURIComponent(name)}`, { method: "DELETE" });
-    toast("Retiré", `« ${name} » a été supprimé.`, "ok");
-    await refreshSites();
-  } catch (err) {
-    toast("Erreur", err.message, "err");
+  if (state.detailName) {
+    const site = getSiteByName(state.detailName);
+    if (site && !$("#site-screen").hidden) populateSiteDetail(site);
   }
 }
+
+/* ============ DEPLOY (NEW SITE) ============ */
 
 async function deploy(name, file) {
   const form = new FormData();
@@ -278,267 +342,6 @@ async function deploy(name, file) {
   try { data = await res.json(); } catch {}
   if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
   return data;
-}
-
-async function copySiteUrl(btn, url) {
-  try {
-    await navigator.clipboard.writeText(url);
-    const original = btn.innerHTML;
-    btn.classList.add("is-ok");
-    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>`;
-    setTimeout(() => {
-      btn.classList.remove("is-ok");
-      btn.innerHTML = original;
-    }, 1200);
-    toast("Copié", "URL copiée", "ok");
-  } catch (err) {
-    toast("Erreur", "Impossible de copier l'URL.", "err");
-  }
-}
-
-function isZipFile(file) {
-  if (!file) return false;
-  const name = (file.name || "").toLowerCase();
-  if (name.endsWith(".zip")) return true;
-  return file.type === "application/zip" || file.type === "application/x-zip-compressed";
-}
-
-function setSiteUploading(siteEl, on) {
-  if (!siteEl) return;
-  const existing = siteEl.querySelector(".site__overlay");
-  if (on) {
-    siteEl.classList.add("is-uploading");
-    if (!existing) {
-      const overlay = document.createElement("div");
-      overlay.className = "site__overlay";
-      overlay.innerHTML = `<span class="spinner"></span><span>Redéploiement…</span>`;
-      siteEl.appendChild(overlay);
-    }
-  } else {
-    siteEl.classList.remove("is-uploading");
-    if (existing) existing.remove();
-  }
-}
-
-async function redeploySite(siteEl, name, file) {
-  if (!isZipFile(file)) {
-    toast("Refusé", "Seules les archives .zip sont acceptées.", "err");
-    return;
-  }
-  setSiteUploading(siteEl, true);
-  try {
-    await deploy(name, file);
-    toast("Redéployé", `« ${name} » a été mis à jour.`, "ok");
-    await refreshSites();
-  } catch (err) {
-    toast("Erreur", err.message, "err");
-    setSiteUploading(siteEl, false);
-  }
-}
-
-/* ============ SETTINGS MODAL ============ */
-
-function getSiteByName(name) {
-  return state.sites.find((s) => s.name === name);
-}
-
-function resetSettingsState() {
-  state.settingsName = null;
-  state.settingsDomains = [];
-  $("#settings-auth-toggle").checked = false;
-  $("#settings-auth-fields").hidden = true;
-  $("#settings-auth-user").value = "admin";
-  $("#settings-auth-pass").value = "";
-  $("#settings-auth-clear").hidden = true;
-  $("#settings-domain-input").value = "";
-  $("#settings-domains-list").innerHTML = "";
-}
-
-function renderSettingsDomains() {
-  const ul = $("#settings-domains-list");
-  ul.innerHTML = "";
-  if (!state.settingsDomains.length) {
-    const li = document.createElement("li");
-    li.className = "settings__domains-empty";
-    li.textContent = "Aucun domaine personnalisé.";
-    ul.appendChild(li);
-    return;
-  }
-  state.settingsDomains.forEach((d, idx) => {
-    const li = document.createElement("li");
-    li.className = "settings__domain";
-    li.innerHTML = `
-      <span>${escape(d)}</span>
-      <button type="button" class="settings__domain-remove" data-idx="${idx}" aria-label="Retirer">×</button>`;
-    ul.appendChild(li);
-  });
-}
-
-function openSettingsModal(name) {
-  const site = getSiteByName(name);
-  if (!site) return;
-  resetSettingsState();
-  state.settingsName = name;
-  state.settingsDomains = Array.isArray(site.customDomains) ? [...site.customDomains] : [];
-
-  $("#settings-title").textContent = `Paramètres — ${name}`;
-  $("#settings-sub").textContent = site.url || "";
-
-  $("#settings-rename-input").value = name;
-  $("#settings-rename-suffix").textContent = `.${state.baseDomain}`;
-
-  const hasAuth = !!(site.auth && site.auth.user);
-  $("#settings-auth-toggle").checked = hasAuth;
-  $("#settings-auth-fields").hidden = !hasAuth;
-  $("#settings-auth-user").value = hasAuth ? site.auth.user : "admin";
-  $("#settings-auth-pass").value = "";
-  $("#settings-auth-pass").placeholder = hasAuth ? "•••••••• (laisser vide pour conserver)" : "••••••••";
-  $("#settings-auth-clear").hidden = !hasAuth;
-
-  renderSettingsDomains();
-  $("#settings-dialog").showModal();
-}
-
-function closeSettingsModal() {
-  const dlg = $("#settings-dialog");
-  if (dlg.open) dlg.close();
-  resetSettingsState();
-}
-
-async function submitRename(e) {
-  e.preventDefault();
-  if (!state.settingsName) return;
-  const oldName = state.settingsName;
-  const newName = $("#settings-rename-input").value.toLowerCase().trim();
-  if (!newName || newName === oldName) return;
-  const btn = $("#settings-rename-btn");
-  setBtnLoading(btn, true, "Renommage…");
-  try {
-    const res = await api(`/api/sites/${encodeURIComponent(oldName)}/rename`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: newName }),
-    });
-    toast("Renommé", `« ${oldName} » → « ${res.name || newName} ».`, "ok");
-    state.settingsName = res.name || newName;
-    await refreshSites();
-    const updated = getSiteByName(state.settingsName);
-    if (updated) {
-      $("#settings-title").textContent = `Paramètres — ${updated.name}`;
-      $("#settings-sub").textContent = updated.url || "";
-    }
-  } catch (err) {
-    toast("Erreur", err.message, "err");
-  } finally {
-    setBtnLoading(btn, false);
-  }
-}
-
-async function submitAuth(e) {
-  e.preventDefault();
-  if (!state.settingsName) return;
-  const user = $("#settings-auth-user").value.trim();
-  const pass = $("#settings-auth-pass").value;
-  if (!user) {
-    toast("Manquant", "Renseignez un identifiant.", "err");
-    return;
-  }
-  if (!pass) {
-    toast("Manquant", "Renseignez un mot de passe.", "err");
-    return;
-  }
-  const btn = $("#settings-auth-save");
-  setBtnLoading(btn, true, "Enregistrement…");
-  try {
-    await api(`/api/sites/${encodeURIComponent(state.settingsName)}/auth`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ user, password: pass }),
-    });
-    toast("Protégé", "Authentification activée.", "ok");
-    $("#settings-auth-pass").value = "";
-    $("#settings-auth-clear").hidden = false;
-    await refreshSites();
-  } catch (err) {
-    toast("Erreur", err.message, "err");
-  } finally {
-    setBtnLoading(btn, false);
-  }
-}
-
-async function clearAuth() {
-  if (!state.settingsName) return;
-  const btn = $("#settings-auth-clear");
-  btn.disabled = true;
-  try {
-    await api(`/api/sites/${encodeURIComponent(state.settingsName)}/auth`, {
-      method: "DELETE",
-    });
-    toast("Retiré", "Protection supprimée.", "ok");
-    $("#settings-auth-toggle").checked = false;
-    $("#settings-auth-fields").hidden = true;
-    $("#settings-auth-pass").value = "";
-    $("#settings-auth-clear").hidden = true;
-    await refreshSites();
-  } catch (err) {
-    toast("Erreur", err.message, "err");
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-async function saveDomains() {
-  if (!state.settingsName) return;
-  try {
-    await api(`/api/sites/${encodeURIComponent(state.settingsName)}/domains`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ domains: state.settingsDomains }),
-    });
-    await refreshSites();
-    return true;
-  } catch (err) {
-    toast("Erreur", err.message, "err");
-    return false;
-  }
-}
-
-async function addDomain(e) {
-  e.preventDefault();
-  if (!state.settingsName) return;
-  const input = $("#settings-domain-input");
-  const val = input.value.trim().toLowerCase();
-  if (!val) return;
-  if (state.settingsDomains.includes(val)) {
-    toast("Déjà présent", "Ce domaine est déjà dans la liste.", "err");
-    return;
-  }
-  const prev = [...state.settingsDomains];
-  state.settingsDomains.push(val);
-  renderSettingsDomains();
-  input.value = "";
-  const ok = await saveDomains();
-  if (ok) {
-    toast("Ajouté", `${val} configuré.`, "ok");
-  } else {
-    state.settingsDomains = prev;
-    renderSettingsDomains();
-  }
-}
-
-async function removeDomain(idx) {
-  if (!state.settingsName) return;
-  const prev = [...state.settingsDomains];
-  const removed = state.settingsDomains[idx];
-  state.settingsDomains.splice(idx, 1);
-  renderSettingsDomains();
-  const ok = await saveDomains();
-  if (ok) {
-    toast("Retiré", `${removed} a été retiré.`, "ok");
-  } else {
-    state.settingsDomains = prev;
-    renderSettingsDomains();
-  }
 }
 
 function setSelectedFile(file) {
@@ -560,6 +363,303 @@ function setSelectedFile(file) {
   }
 }
 
+/* ============ COPY URL ============ */
+
+async function copyUrl(btn, url) {
+  try {
+    await navigator.clipboard.writeText(url);
+    const original = btn.innerHTML;
+    btn.classList.add("is-ok");
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>`;
+    setTimeout(() => {
+      btn.classList.remove("is-ok");
+      btn.innerHTML = original;
+    }, 1200);
+    toast("Copié", "URL copiée", "ok");
+  } catch {
+    toast("Erreur", "Impossible de copier l'URL.", "err");
+  }
+}
+
+/* ============ SITE DETAIL ============ */
+
+function isZipFile(file) {
+  if (!file) return false;
+  const name = (file.name || "").toLowerCase();
+  if (name.endsWith(".zip")) return true;
+  return file.type === "application/zip" || file.type === "application/x-zip-compressed";
+}
+
+function showSiteDetail(name) {
+  const site = getSiteByName(name);
+  if (!site) {
+    toast("Introuvable", `Aucun site nommé « ${name} ».`, "err");
+    location.hash = "#/";
+    return;
+  }
+  showScreen("site-screen");
+  populateSiteDetail(site);
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function populateSiteDetail(site) {
+  state.detailName = site.name;
+  state.detailDomains = Array.isArray(site.customDomains) ? [...site.customDomains] : [];
+  state.detailFile = null;
+
+  $("#sd-breadcrumb").textContent = site.name;
+  $("#sd-name").textContent = site.name;
+  if (site.title && site.title.trim()) {
+    $("#sd-title").textContent = site.title;
+    $("#sd-title").hidden = false;
+  } else {
+    $("#sd-title").hidden = true;
+    $("#sd-title").textContent = "";
+  }
+  $("#sd-url").textContent = site.url;
+  $("#sd-url").href = site.url;
+  $("#sd-copy").dataset.url = site.url;
+  $("#sd-size").textContent = fmtSize(site.size);
+  $("#sd-deployed").textContent = fmtRelative(site.updatedAt);
+
+  const hasAuth = !!(site.auth && site.auth.user);
+  $("#sd-auth-pill").hidden = !hasAuth;
+
+  $("#sd-rename-input").value = site.name;
+  $("#sd-rename-suffix").textContent = `.${state.baseDomain}`;
+
+  $("#sd-auth-toggle").checked = hasAuth;
+  $("#sd-auth-fields").hidden = !hasAuth;
+  $("#sd-auth-user").value = hasAuth ? site.auth.user : "admin";
+  $("#sd-auth-pass").value = "";
+  $("#sd-auth-pass").placeholder = hasAuth ? "•••••••• (laisser vide pour conserver)" : "••••••••";
+  $("#sd-auth-clear").hidden = !hasAuth;
+
+  renderDetailDomains();
+
+  const frame = $("#sd-preview-frame");
+  if (frame.dataset.src !== site.url) {
+    frame.dataset.src = site.url;
+    frame.src = site.url;
+  }
+  $("#sd-preview-open").href = site.url;
+
+  resetDetailDropzone();
+}
+
+function resetDetailDropzone() {
+  state.detailFile = null;
+  const dz = $("#sd-dropzone");
+  $("#sd-dropzone-hint").textContent = "Glissez la nouvelle version .zip";
+  $("#sd-dropzone-sub").textContent = "Ou cliquez pour parcourir";
+  dz.classList.remove("has-file", "is-uploading", "is-dragover");
+  const overlay = dz.querySelector(".dropzone__overlay");
+  if (overlay) overlay.remove();
+  const input = $("#sd-file-input");
+  if (input) input.value = "";
+}
+
+function setDetailRedeploying(on) {
+  const dz = $("#sd-dropzone");
+  if (on) {
+    dz.classList.add("is-uploading");
+    if (!dz.querySelector(".dropzone__overlay")) {
+      const overlay = document.createElement("div");
+      overlay.className = "dropzone__overlay";
+      overlay.innerHTML = `<span class="spinner"></span><span>Redéploiement…</span>`;
+      dz.appendChild(overlay);
+    }
+  } else {
+    dz.classList.remove("is-uploading");
+    const overlay = dz.querySelector(".dropzone__overlay");
+    if (overlay) overlay.remove();
+  }
+}
+
+function renderDetailDomains() {
+  const ul = $("#sd-domains-list");
+  ul.innerHTML = "";
+  if (!state.detailDomains.length) {
+    const li = document.createElement("li");
+    li.className = "settings__domains-empty";
+    li.textContent = "Aucun domaine personnalisé.";
+    ul.appendChild(li);
+    return;
+  }
+  state.detailDomains.forEach((d, idx) => {
+    const li = document.createElement("li");
+    li.className = "settings__domain";
+    li.innerHTML = `
+      <span>${escape(d)}</span>
+      <button type="button" class="settings__domain-remove" data-idx="${idx}" aria-label="Retirer">×</button>`;
+    ul.appendChild(li);
+  });
+}
+
+async function redeploySite(file) {
+  if (!state.detailName) return;
+  if (!isZipFile(file)) {
+    toast("Refusé", "Seules les archives .zip sont acceptées.", "err");
+    return;
+  }
+  setDetailRedeploying(true);
+  try {
+    await deploy(state.detailName, file);
+    toast("Redéployé", `« ${state.detailName} » a été mis à jour.`, "ok");
+    await refreshSites();
+    const frame = $("#sd-preview-frame");
+    if (frame.dataset.src) {
+      const bust = frame.dataset.src + (frame.dataset.src.includes("?") ? "&" : "?") + "_=" + Date.now();
+      frame.src = bust;
+    }
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  } finally {
+    setDetailRedeploying(false);
+    resetDetailDropzone();
+  }
+}
+
+async function submitRename(e) {
+  e.preventDefault();
+  if (!state.detailName) return;
+  const oldName = state.detailName;
+  const newName = $("#sd-rename-input").value.toLowerCase().trim();
+  if (!newName || newName === oldName) return;
+  const btn = $("#sd-rename-btn");
+  setBtnLoading(btn, true, "Renommage…");
+  try {
+    const res = await api(`/api/sites/${encodeURIComponent(oldName)}/rename`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: newName }),
+    });
+    toast("Renommé", `« ${oldName} » → « ${res.name || newName} ».`, "ok");
+    state.detailName = res.name || newName;
+    await refreshSites();
+    location.hash = `#/site/${encodeURIComponent(state.detailName)}`;
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function submitAuth(e) {
+  e.preventDefault();
+  if (!state.detailName) return;
+  const user = $("#sd-auth-user").value.trim();
+  const pass = $("#sd-auth-pass").value;
+  if (!user) { toast("Manquant", "Renseignez un identifiant.", "err"); return; }
+  if (!pass) { toast("Manquant", "Renseignez un mot de passe.", "err"); return; }
+  const btn = $("#sd-auth-save");
+  setBtnLoading(btn, true, "Enregistrement…");
+  try {
+    await api(`/api/sites/${encodeURIComponent(state.detailName)}/auth`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user, password: pass }),
+    });
+    toast("Protégé", "Authentification activée.", "ok");
+    $("#sd-auth-pass").value = "";
+    $("#sd-auth-clear").hidden = false;
+    $("#sd-auth-pill").hidden = false;
+    await refreshSites();
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function clearAuth() {
+  if (!state.detailName) return;
+  const btn = $("#sd-auth-clear");
+  btn.disabled = true;
+  try {
+    await api(`/api/sites/${encodeURIComponent(state.detailName)}/auth`, { method: "DELETE" });
+    toast("Retiré", "Protection supprimée.", "ok");
+    $("#sd-auth-toggle").checked = false;
+    $("#sd-auth-fields").hidden = true;
+    $("#sd-auth-pass").value = "";
+    $("#sd-auth-clear").hidden = true;
+    $("#sd-auth-pill").hidden = true;
+    await refreshSites();
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function saveDomains() {
+  if (!state.detailName) return false;
+  try {
+    await api(`/api/sites/${encodeURIComponent(state.detailName)}/domains`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domains: state.detailDomains }),
+    });
+    await refreshSites();
+    return true;
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+    return false;
+  }
+}
+
+async function addDomain(e) {
+  e.preventDefault();
+  if (!state.detailName) return;
+  const input = $("#sd-domain-input");
+  const val = input.value.trim().toLowerCase();
+  if (!val) return;
+  if (state.detailDomains.includes(val)) {
+    toast("Déjà présent", "Ce domaine est déjà dans la liste.", "err");
+    return;
+  }
+  const prev = [...state.detailDomains];
+  state.detailDomains.push(val);
+  renderDetailDomains();
+  input.value = "";
+  const ok = await saveDomains();
+  if (ok) toast("Ajouté", `${val} configuré.`, "ok");
+  else { state.detailDomains = prev; renderDetailDomains(); }
+}
+
+async function removeDomain(idx) {
+  if (!state.detailName) return;
+  const prev = [...state.detailDomains];
+  const removed = state.detailDomains[idx];
+  state.detailDomains.splice(idx, 1);
+  renderDetailDomains();
+  const ok = await saveDomains();
+  if (ok) toast("Retiré", `${removed} a été retiré.`, "ok");
+  else { state.detailDomains = prev; renderDetailDomains(); }
+}
+
+async function deleteCurrentSite() {
+  if (!state.detailName) return;
+  const name = state.detailName;
+  const ok = await confirmModal({
+    title: "Supprimer ce site ?",
+    body: `Le site <code>${escape(name)}</code> sera retiré du serveur ainsi que sa configuration HTTPS. Cette action est définitive.`,
+    okLabel: "Supprimer",
+  });
+  if (!ok) return;
+  try {
+    await api(`/api/sites/${encodeURIComponent(name)}`, { method: "DELETE" });
+    toast("Retiré", `« ${name} » a été supprimé.`, "ok");
+    state.detailName = null;
+    await refreshSites();
+    location.hash = "#/";
+  } catch (err) {
+    toast("Erreur", err.message, "err");
+  }
+}
+
+/* ============ HELPERS ============ */
+
 function setBtnLoading(btn, loading, label) {
   const labelEl = btn.querySelector(".btn__label");
   const iconEl = btn.querySelector(".btn__icon");
@@ -575,8 +675,15 @@ function setBtnLoading(btn, loading, label) {
   }
 }
 
+/* ============ BIND ============ */
+
 function bind() {
   $$("[data-theme-toggle]").forEach((b) => b.addEventListener("click", toggleTheme));
+
+  document.body.addEventListener("click", (e) => {
+    const action = e.target.closest("[data-action]")?.dataset.action;
+    if (action === "logout") logout();
+  });
 
   $("#login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -593,8 +700,7 @@ function bind() {
     }
   });
 
-  $("#logout-btn").addEventListener("click", logout);
-
+  /* ---- top-level deploy form ---- */
   const dz = $("#dropzone");
   ["dragenter", "dragover"].forEach((ev) =>
     dz.addEventListener(ev, (e) => {
@@ -621,10 +727,7 @@ function bind() {
     e.preventDefault();
     const name = $("#site-name").value.toLowerCase().trim();
     const file = state.selectedFile;
-    if (!file) {
-      toast("Manquant", "Choisissez d'abord une archive .zip.", "err");
-      return;
-    }
+    if (!file) { toast("Manquant", "Choisissez d'abord une archive .zip.", "err"); return; }
     const btn = $("#deploy-btn");
     setBtnLoading(btn, true, "Publication…");
     try {
@@ -640,150 +743,131 @@ function bind() {
     }
   });
 
-  $("#sites-list").addEventListener("click", async (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    const action = btn.dataset.action;
-    if (action === "delete") {
-      await deleteSite(btn.dataset.name);
-    } else if (action === "copy") {
-      await copySiteUrl(btn, btn.dataset.url);
-    } else if (action === "settings") {
-      openSettingsModal(btn.dataset.name);
+  $("#site-name").addEventListener("input", (e) => {
+    e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  });
+
+  /* ---- sites list interactions ---- */
+  const list = $("#sites-list");
+  list.addEventListener("click", async (e) => {
+    const stop = e.target.closest("[data-stop]");
+    if (stop) {
+      e.stopPropagation();
+      const action = e.target.closest("[data-action]")?.dataset.action;
+      if (action === "copy") {
+        const btn = e.target.closest("[data-action='copy']");
+        await copyUrl(btn, btn.dataset.url);
+      }
+      return;
+    }
+    const card = e.target.closest(".site");
+    if (card?.dataset.name) navigateSite(card.dataset.name);
+  });
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest(".site");
+    if (card?.dataset.name) {
+      e.preventDefault();
+      navigateSite(card.dataset.name);
     }
   });
 
-  /* ---- search filter ---- */
   $("#sites-filter").addEventListener("input", (e) => {
     state.filter = e.target.value;
     renderSites();
   });
 
-  /* ---- per-card drop ---- */
-  const sitesList = $("#sites-list");
-  let dragDepth = 0;
-  let activeCard = null;
+  /* ---- detail-page redeploy dropzone ---- */
+  const sdDz = $("#sd-dropzone");
+  ["dragenter", "dragover"].forEach((ev) =>
+    sdDz.addEventListener(ev, (e) => {
+      e.preventDefault();
+      sdDz.classList.add("is-dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((ev) =>
+    sdDz.addEventListener(ev, (e) => {
+      e.preventDefault();
+      if (ev === "dragleave" && e.target !== sdDz) return;
+      sdDz.classList.remove("is-dragover");
+    })
+  );
+  sdDz.addEventListener("drop", async (e) => {
+    const f = e.dataTransfer?.files?.[0];
+    if (f) await redeploySite(f);
+  });
+  $("#sd-file-input").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    if (f) await redeploySite(f);
+  });
 
-  const isFileDrag = (e) => {
-    const types = e.dataTransfer && e.dataTransfer.types;
-    if (!types) return false;
-    for (let i = 0; i < types.length; i++) if (types[i] === "Files") return true;
-    return false;
-  };
-
-  sitesList.addEventListener("dragenter", (e) => {
-    if (!isFileDrag(e)) return;
-    const card = e.target.closest(".site");
-    if (!card || card.classList.contains("is-uploading")) return;
+  /* ---- detail copy URL ---- */
+  $("#sd-copy").addEventListener("click", async (e) => {
     e.preventDefault();
-    dragDepth++;
-    if (activeCard && activeCard !== card) activeCard.classList.remove("is-dragover");
-    activeCard = card;
-    card.classList.add("is-dragover");
+    const btn = e.currentTarget;
+    await copyUrl(btn, btn.dataset.url);
   });
 
-  sitesList.addEventListener("dragover", (e) => {
-    if (!isFileDrag(e)) return;
-    const card = e.target.closest(".site");
-    if (!card) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-  });
-
-  sitesList.addEventListener("dragleave", (e) => {
-    if (!isFileDrag(e)) return;
-    const card = e.target.closest(".site");
-    if (!card) return;
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (dragDepth === 0 && activeCard) {
-      activeCard.classList.remove("is-dragover");
-      activeCard = null;
-    }
-  });
-
-  sitesList.addEventListener("drop", async (e) => {
-    const card = e.target.closest(".site");
-    if (!card) return;
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepth = 0;
-    card.classList.remove("is-dragover");
-    activeCard = null;
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    const name = card.dataset.name;
-    if (!name) return;
-    await redeploySite(card, name, file);
-  });
-
-  // Prevent the page from navigating when files are dropped outside
-  // the dedicated dropzones (e.g. between cards).
-  window.addEventListener("dragover", (e) => {
-    if (isFileDrag(e)) e.preventDefault();
-  });
-  window.addEventListener("drop", (e) => {
-    const inDropzone = e.target.closest("#dropzone");
-    const inCard = e.target.closest(".site");
-    if (!inDropzone && !inCard && isFileDrag(e)) e.preventDefault();
-  });
-
-  /* ---- settings modal ---- */
-  const settingsDialog = $("#settings-dialog");
-  $("#settings-close").addEventListener("click", () => closeSettingsModal());
-  settingsDialog.addEventListener("close", () => resetSettingsState());
-  settingsDialog.addEventListener("click", (e) => {
-    // Click on backdrop closes the dialog
-    if (e.target === settingsDialog) closeSettingsModal();
-  });
-
-  $("#settings-rename-form").addEventListener("submit", submitRename);
-  $("#settings-rename-input").addEventListener("input", (e) => {
+  /* ---- detail settings ---- */
+  $("#sd-rename-form").addEventListener("submit", submitRename);
+  $("#sd-rename-input").addEventListener("input", (e) => {
     e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
   });
 
-  $("#settings-auth-toggle").addEventListener("change", (e) => {
+  $("#sd-auth-toggle").addEventListener("change", (e) => {
     const on = e.target.checked;
-    const fields = $("#settings-auth-fields");
+    const fields = $("#sd-auth-fields");
     fields.hidden = !on;
     if (on) {
-      const site = getSiteByName(state.settingsName);
+      const site = getSiteByName(state.detailName);
       const hasAuth = !!(site && site.auth && site.auth.user);
       if (!hasAuth) {
-        $("#settings-auth-user").value = $("#settings-auth-user").value || "admin";
-        $("#settings-auth-pass").focus();
+        $("#sd-auth-user").value = $("#sd-auth-user").value || "admin";
+        $("#sd-auth-pass").focus();
       }
     }
   });
 
-  $("#settings-auth-form").addEventListener("submit", submitAuth);
-  $("#settings-auth-clear").addEventListener("click", clearAuth);
+  $("#sd-auth-form").addEventListener("submit", submitAuth);
+  $("#sd-auth-clear").addEventListener("click", clearAuth);
 
-  $("#settings-domain-form").addEventListener("submit", addDomain);
-  $("#settings-domains-list").addEventListener("click", (e) => {
+  $("#sd-domain-form").addEventListener("submit", addDomain);
+  $("#sd-domains-list").addEventListener("click", (e) => {
     const btn = e.target.closest(".settings__domain-remove");
     if (!btn) return;
     const idx = Number(btn.dataset.idx);
     if (!Number.isNaN(idx)) removeDomain(idx);
   });
 
-  $("#site-name").addEventListener("input", (e) => {
-    e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  $("#sd-delete-btn").addEventListener("click", deleteCurrentSite);
+
+  /* ---- prevent accidental file-drop navigation outside dropzones ---- */
+  const isFileDrag = (e) => {
+    const types = e.dataTransfer && e.dataTransfer.types;
+    if (!types) return false;
+    for (let i = 0; i < types.length; i++) if (types[i] === "Files") return true;
+    return false;
+  };
+  window.addEventListener("dragover", (e) => {
+    if (isFileDrag(e)) e.preventDefault();
+  });
+  window.addEventListener("drop", (e) => {
+    const inDropzone = e.target.closest("#dropzone, #sd-dropzone");
+    if (!inDropzone && isFileDrag(e)) e.preventDefault();
   });
 
+  /* ---- system theme tracker ---- */
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
     if (!localStorage.getItem(THEME_KEY)) setTheme(e.matches ? "dark" : "light");
   });
+
+  /* ---- routing ---- */
+  window.addEventListener("hashchange", route);
 }
 
 async function init() {
   bind();
-  if (state.token) {
-    try { await showDashboard(); }
-    catch { logout(); }
-  } else {
-    showLogin();
-  }
+  await route();
 }
 
 init();
