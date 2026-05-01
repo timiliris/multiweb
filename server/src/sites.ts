@@ -92,9 +92,25 @@ async function readTitle(dir: string): Promise<string | undefined> {
   if (!html) return undefined;
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (!m) return undefined;
-  const text = m[1].replace(/\s+/g, " ").trim();
+  const text = decodeEntities(m[1]).replace(/\s+/g, " ").trim();
   if (!text) return undefined;
   return text.slice(0, 200);
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, hex) => {
+      try { return String.fromCodePoint(parseInt(hex, 16)); } catch { return m; }
+    })
+    .replace(/&#(\d+);/g, (m, dec) => {
+      try { return String.fromCodePoint(parseInt(dec, 10)); } catch { return m; }
+    })
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
 }
 
 async function dirSize(dir: string): Promise<number> {
