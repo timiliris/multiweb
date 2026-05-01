@@ -2,6 +2,7 @@ import path from "node:path";
 import { config } from "./config.ts";
 import { checkAuth, unauthorized } from "./auth.ts";
 import { listSites, deploySite, deleteSite, validateName } from "./sites.ts";
+import { syncCaddy } from "./caddy.ts";
 
 const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
 
@@ -75,7 +76,7 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
 
 Bun.serve({
   port: config.port,
-  hostname: "127.0.0.1",
+  hostname: config.hostname,
   maxRequestBodySize: config.maxUploadMb * 1024 * 1024 + 1024 * 1024,
   async fetch(req) {
     const url = new URL(req.url);
@@ -92,4 +93,21 @@ Bun.serve({
   },
 });
 
-console.log(`multiweb listening on http://127.0.0.1:${config.port} (base: ${config.baseDomain})`);
+console.log(`multiweb listening on http://${config.hostname}:${config.port} (base: ${config.baseDomain})`);
+
+const initialSync = async (attempt = 1): Promise<void> => {
+  try {
+    await syncCaddy();
+    console.log("Caddy config synced");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (attempt <= 5) {
+      console.warn(`Caddy sync attempt ${attempt} failed (${msg}), retrying in 2s…`);
+      setTimeout(() => initialSync(attempt + 1), 2000);
+    } else {
+      console.error("Caddy initial sync gave up — fix Caddy and trigger a deploy.");
+    }
+  }
+};
+
+initialSync();

@@ -1,42 +1,64 @@
-import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.ts";
 
-const siteBlock = (host: string, root: string) => `${host} {
-    root * ${root}
-    encode gzip
-    try_files {path} /index.html
-    file_server
-}
-`;
+const withScheme = (host: string): string =>
+  config.scheme === "http" ? `http://${host}` : host;
 
-export async function writeSiteConfig(name: string): Promise<void> {
-  await mkdir(config.caddySitesDir, { recursive: true });
-  const host = `${name}.${config.baseDomain}`;
-  const root = path.join(config.sitesDir, name);
-  const file = path.join(config.caddySitesDir, `${name}.caddy`);
-  await writeFile(file, siteBlock(host, root));
-  await reloadCaddy();
-}
-
-export async function deleteSiteConfig(name: string): Promise<void> {
-  const file = path.join(config.caddySitesDir, `${name}.caddy`);
+async function listSiteNames(): Promise<string[]> {
   try {
-    await unlink(file);
+    const entries = await readdir(config.sitesDir, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
   }
-  await reloadCaddy();
 }
 
-async function reloadCaddy(): Promise<void> {
-  const proc = Bun.spawn(["caddy", "reload", "--config", config.caddyConfigPath], {
-    stdout: "pipe",
-    stderr: "pipe",
+function buildCaddyfile(names: string[]): string {
+  const lines: string[] = [];
+
+  lines.push("{");
+  lines.push(`    admin ${config.caddyAdminListen}`);
+  if (config.email) lines.push(`    email ${config.email}`);
+  if (config.scheme === "http") lines.push("    auto_https off");
+  lines.push("}");
+  lines.push("");
+
+  lines.push(`${withScheme(config.dashboardHost)} {`);
+  lines.push(`    reverse_proxy ${config.dashboardUpstream}`);
+  lines.push(`    encode gzip`);
+  lines.push("}");
+
+  for (const name of names) {
+    const root = path.join(config.sitesDir, name);
+    const host = `${name}.${config.baseDomain}`;
+    lines.push("");
+    lines.push(`${withScheme(host)} {`);
+    lines.push(`    root * ${root}`);
+    lines.push(`    encode gzip`);
+    lines.push(`    try_files {path} /index.html`);
+    lines.push(`    file_server`);
+    lines.push("}");
+  }
+
+  return lines.join("\n") + "\n";
+}
+
+export async function syncCaddy(): Promise<void> {
+  const names = await listSiteNames();
+  const caddyfile = buildCaddyfile(names);
+
+  const res = await fetch(`${config.caddyAdminUrl}/load`, {
+    method: "POST",
+    headers: { "content-type": "text/caddyfile" },
+    body: caddyfile,
   });
-  const exit = await proc.exited;
-  if (exit !== 0) {
-    const err = await new Response(proc.stderr).text();
-    throw new Error(`caddy reload failed: ${err.trim() || `exit ${exit}`}`);
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(
+      `Caddy reload échoué (${res.status}): ${err.trim() || "réponse vide"}`
+    );
   }
 }

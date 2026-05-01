@@ -78,7 +78,6 @@ cp "$SCRIPT_DIR/Caddyfile.template" "$INSTALL_DIR/Caddyfile.template"
 
 echo "==> Création des dossiers de runtime…"
 mkdir -p /var/www/sites
-mkdir -p /etc/caddy/sites.d
 
 if [ "$NEED_CONFIG" -eq 1 ]; then
   echo "==> Génération du Caddyfile…"
@@ -92,6 +91,7 @@ if [ "$NEED_CONFIG" -eq 1 ]; then
   cat > /etc/multiweb.env <<EOF
 MULTIWEB_PASSWORD=$PASSWORD
 MULTIWEB_BASE_DOMAIN=$BASE_DOMAIN
+MULTIWEB_EMAIL=$EMAIL
 EOF
   chmod 600 /etc/multiweb.env
 fi

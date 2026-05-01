@@ -16,4 +16,4 @@ rm -rf /opt/multiweb
 rm -f /etc/multiweb.env
 
 echo "multiweb désinstallé."
-echo "Conservés : /var/www/sites, /etc/caddy/sites.d, /etc/caddy/Caddyfile, Caddy lui-même."
+echo "Conservés : /var/www/sites, /etc/caddy/Caddyfile, Caddy lui-même."

@@ -1,7 +1,7 @@
 import { mkdir, readdir, rm, writeFile, stat, rename } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.ts";
-import { writeSiteConfig, deleteSiteConfig } from "./caddy.ts";
+import { syncCaddy } from "./caddy.ts";
 
 const NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 const RESERVED = new Set(["www", "dash", "admin", "api"]);
@@ -75,7 +75,7 @@ export async function deploySite(name: string, zipFile: File): Promise<void> {
   await rm(target, { recursive: true, force: true });
   await rename(tmpDir, target);
 
-  await writeSiteConfig(name);
+  await syncCaddy();
 }
 
 async function flattenIfSingleDir(dir: string): Promise<void> {
@@ -94,5 +94,5 @@ export async function deleteSite(name: string): Promise<void> {
   if (!validateName(name)) throw new Error("Nom invalide");
   const target = path.join(config.sitesDir, name);
   await rm(target, { recursive: true, force: true });
-  await deleteSiteConfig(name);
+  await syncCaddy();
 }

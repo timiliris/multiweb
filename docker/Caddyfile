@@ -1,0 +1,8 @@
+{
+    auto_https off
+    admin 0.0.0.0:2019
+}
+
+:80 {
+    respond "multiweb démarre… (si ce message persiste, vérifie les logs du conteneur multiweb)" 503
+}
