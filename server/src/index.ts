@@ -1,8 +1,25 @@
 import path from "node:path";
 import { config } from "./config.ts";
 import { checkAuth, unauthorized } from "./auth.ts";
-import { listSites, deploySite, deleteSite, validateName, cleanupStaging } from "./sites.ts";
+import {
+  listSites,
+  deploySite,
+  deleteSite,
+  renameSite,
+  validateName,
+  validateUser,
+  validatePassword,
+  validateCustomDomain,
+  isSubdomainOfBase,
+  cleanupStaging,
+} from "./sites.ts";
 import { syncCaddy } from "./caddy.ts";
+import {
+  readMeta,
+  setSiteAuth,
+  clearSiteAuth,
+  setSiteCustomDomains,
+} from "./meta.ts";
 
 const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
 
@@ -25,6 +42,12 @@ async function serveStatic(pathname: string): Promise<Response> {
     return new Response("Not found", { status: 404 });
   }
   return new Response(file);
+}
+
+async function readJson(req: Request): Promise<Record<string, unknown>> {
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") return {};
+  return body as Record<string, unknown>;
 }
 
 async function handleApi(req: Request, pathname: string): Promise<Response> {
@@ -64,11 +87,96 @@ async function handleApi(req: Request, pathname: string): Promise<Response> {
     return json({ ok: true, name, url: `https://${name}.${config.baseDomain}` });
   }
 
-  if (pathname.startsWith("/api/sites/") && req.method === "DELETE") {
-    const name = decodeURIComponent(pathname.slice("/api/sites/".length));
-    if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
-    await deleteSite(name);
-    return json({ ok: true });
+  if (pathname.startsWith("/api/sites/")) {
+    const rest = pathname.slice("/api/sites/".length);
+    const [rawName, ...subParts] = rest.split("/");
+    const name = decodeURIComponent(rawName);
+    const sub = subParts.join("/");
+
+    if (sub === "" && req.method === "DELETE") {
+      if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
+      await deleteSite(name);
+      return json({ ok: true });
+    }
+
+    if (sub === "rename" && req.method === "POST") {
+      if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
+      const body = await readJson(req);
+      const next = String(body.name ?? "").toLowerCase().trim();
+      if (!validateName(next)) {
+        return json({ error: "Nouveau nom invalide (a-z, 0-9, -, 2-32 caractères)" }, { status: 400 });
+      }
+      try {
+        await renameSite(name, next);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Renommage échoué";
+        const status = msg.includes("existe déjà") ? 409 : msg.includes("introuvable") ? 404 : 400;
+        return json({ error: msg }, { status });
+      }
+      return json({ ok: true, name: next, url: `${config.scheme}://${next}.${config.baseDomain}` });
+    }
+
+    if (sub === "auth" && req.method === "PUT") {
+      if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
+      const body = await readJson(req);
+      const user = String(body.user ?? "");
+      const password = String(body.password ?? "");
+      if (!validateUser(user)) {
+        return json({ error: "Utilisateur invalide (lettres, chiffres, _, 1-32 caractères)" }, { status: 400 });
+      }
+      if (!validatePassword(password)) {
+        return json({ error: "Mot de passe trop court (4 caractères minimum)" }, { status: 400 });
+      }
+      const passwordHash = await Bun.password.hash(password, "bcrypt");
+      await setSiteAuth(name, { user, passwordHash });
+      await syncCaddy();
+      return json({ ok: true, auth: { user } });
+    }
+
+    if (sub === "auth" && req.method === "DELETE") {
+      if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
+      await clearSiteAuth(name);
+      await syncCaddy();
+      return json({ ok: true });
+    }
+
+    if (sub === "domains" && req.method === "PUT") {
+      if (!validateName(name)) return json({ error: "Nom invalide" }, { status: 400 });
+      const body = await readJson(req);
+      const raw = body.domains;
+      if (!Array.isArray(raw)) {
+        return json({ error: "Liste de domaines manquante" }, { status: 400 });
+      }
+      const normalized: string[] = [];
+      for (const d of raw) {
+        if (typeof d !== "string") {
+          return json({ error: "Domaine invalide" }, { status: 400 });
+        }
+        const v = d.trim().toLowerCase();
+        if (!v) continue;
+        if (!validateCustomDomain(v)) {
+          return json({ error: `Domaine invalide: ${d}` }, { status: 400 });
+        }
+        if (isSubdomainOfBase(v)) {
+          return json({ error: `Domaine réservé (sous-domaine de ${config.baseDomain}): ${v}` }, { status: 400 });
+        }
+        if (!normalized.includes(v)) normalized.push(v);
+      }
+
+      const meta = await readMeta();
+      for (const [other, m] of Object.entries(meta.sites)) {
+        if (other === name) continue;
+        for (const d of m.customDomains ?? []) {
+          if (normalized.includes(d.toLowerCase())) {
+            return json({ error: `Domaine déjà utilisé par un autre site: ${d}` }, { status: 409 });
+          }
+        }
+      }
+
+      await setSiteCustomDomains(name, normalized);
+      await syncCaddy();
+      return json({ ok: true, customDomains: normalized });
+    }
   }
 
   return new Response("Not found", { status: 404 });

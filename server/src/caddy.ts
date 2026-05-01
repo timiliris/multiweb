@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.ts";
+import { readMeta, type SiteMeta } from "./meta.ts";
 
 const withScheme = (host: string): string =>
   config.scheme === "http" ? `http://${host}` : host;
@@ -18,7 +19,7 @@ async function listSiteNames(): Promise<string[]> {
   }
 }
 
-function buildCaddyfile(names: string[]): string {
+function buildCaddyfile(names: string[], metaBySite: Record<string, SiteMeta>): string {
   const lines: string[] = [];
 
   lines.push("{");
@@ -35,9 +36,17 @@ function buildCaddyfile(names: string[]): string {
 
   for (const name of names) {
     const root = path.join(config.sitesDir, name);
-    const host = `${name}.${config.baseDomain}`;
+    const autoHost = `${name}.${config.baseDomain}`;
+    const m = metaBySite[name];
+    const customs = m?.customDomains ?? [];
+    const hosts = [autoHost, ...customs].map(withScheme);
     lines.push("");
-    lines.push(`${withScheme(host)} {`);
+    lines.push(`${hosts.join(", ")} {`);
+    if (m?.auth) {
+      lines.push(`    basic_auth {`);
+      lines.push(`        ${m.auth.user} ${m.auth.passwordHash}`);
+      lines.push(`    }`);
+    }
     lines.push(`    root * ${root}`);
     lines.push(`    encode gzip`);
     lines.push(`    try_files {path} /index.html`);
@@ -50,7 +59,8 @@ function buildCaddyfile(names: string[]): string {
 
 export async function syncCaddy(): Promise<void> {
   const names = await listSiteNames();
-  const caddyfile = buildCaddyfile(names);
+  const meta = await readMeta();
+  const caddyfile = buildCaddyfile(names, meta.sites);
 
   const res = await fetch(`${config.caddyAdminUrl}/load`, {
     method: "POST",

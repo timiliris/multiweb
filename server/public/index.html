@@ -141,6 +141,12 @@
           <h2 class="sites-section__title">Sites</h2>
           <span class="sites-section__count" id="sites-count">—</span>
         </div>
+        <div class="sites-section__filter">
+          <span class="sites-section__filter-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          </span>
+          <input type="search" id="sites-filter" class="input input--search" placeholder="Filtrer par nom, titre ou domaine…" autocomplete="off" spellcheck="false">
+        </div>
         <div id="sites-list" class="sites-list" aria-live="polite"></div>
       </section>
     </main>
@@ -157,6 +163,81 @@
         <button value="ok" class="btn btn--danger btn--sm" id="confirm-ok">Confirmer</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="modal">
+    <div class="modal__card modal__card--lg">
+      <header class="settings__head">
+        <div>
+          <h3 class="modal__title" id="settings-title">Paramètres</h3>
+          <p class="settings__sub" id="settings-sub">—</p>
+        </div>
+        <button type="button" class="modal__close" id="settings-close" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </header>
+
+      <section class="settings__section">
+        <div class="settings__section-head">
+          <h4 class="settings__section-title">Renommer</h4>
+          <p class="settings__section-sub">Modifie le sous-domaine de ce site.</p>
+        </div>
+        <form id="settings-rename-form" class="settings__row">
+          <div class="input-group">
+            <input type="text" id="settings-rename-input" class="input input--mono" maxlength="32" required spellcheck="false" autocomplete="off">
+            <span class="input-group__suffix" id="settings-rename-suffix">.localhost</span>
+          </div>
+          <button type="submit" class="btn btn--primary btn--sm" id="settings-rename-btn">
+            <span class="btn__label">Renommer</span>
+          </button>
+        </form>
+      </section>
+
+      <div class="settings__divider"></div>
+
+      <section class="settings__section">
+        <div class="settings__section-head">
+          <h4 class="settings__section-title">Mot de passe</h4>
+          <p class="settings__section-sub">Restreint l'accès au site avec une authentification HTTP de base.</p>
+        </div>
+        <label class="settings__checkbox">
+          <input type="checkbox" id="settings-auth-toggle">
+          <span>Protéger ce site</span>
+        </label>
+        <div class="settings__auth-fields" id="settings-auth-fields" hidden>
+          <form id="settings-auth-form" class="settings__grid">
+            <label class="field">
+              <span class="field__label">Identifiant</span>
+              <input type="text" id="settings-auth-user" class="input input--mono" value="admin" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span class="field__label">Mot de passe</span>
+              <input type="password" id="settings-auth-pass" class="input" autocomplete="new-password" placeholder="••••••••">
+            </label>
+            <div class="settings__row settings__row--end">
+              <button type="button" class="btn btn--ghost btn--sm" id="settings-auth-clear" hidden>Supprimer la protection</button>
+              <button type="submit" class="btn btn--primary btn--sm" id="settings-auth-save">
+                <span class="btn__label">Enregistrer</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <div class="settings__divider"></div>
+
+      <section class="settings__section">
+        <div class="settings__section-head">
+          <h4 class="settings__section-title">Domaines personnalisés</h4>
+          <p class="settings__section-sub">Configurez d'abord un enregistrement DNS pointant vers ce serveur. Le HTTPS sera provisionné automatiquement.</p>
+        </div>
+        <ul class="settings__domains" id="settings-domains-list"></ul>
+        <form id="settings-domain-form" class="settings__row">
+          <input type="text" id="settings-domain-input" class="input input--mono" placeholder="exemple.com" autocomplete="off" spellcheck="false">
+          <button type="submit" class="btn btn--ghost btn--sm">Ajouter</button>
+        </form>
+      </section>
+    </div>
   </dialog>
 
   <script src="/app.js"></script>
