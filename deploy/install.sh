@@ -76,8 +76,16 @@ rsync -a --delete \
 cp "$SCRIPT_DIR/multiweb.service" "$INSTALL_DIR/multiweb.service"
 cp "$SCRIPT_DIR/Caddyfile.template" "$INSTALL_DIR/Caddyfile.template"
 
+echo "==> Création de l'utilisateur dédié…"
+if ! id -u multiweb >/dev/null 2>&1; then
+  useradd --system --no-create-home --shell /usr/sbin/nologin multiweb
+fi
+
 echo "==> Création des dossiers de runtime…"
 mkdir -p /var/www/sites
+chown -R multiweb:multiweb /var/www/sites
+chmod 755 /var/www/sites
+chown -R multiweb:multiweb "$INSTALL_DIR"
 
 if [ "$NEED_CONFIG" -eq 1 ]; then
   echo "==> Génération du Caddyfile…"
@@ -93,7 +101,13 @@ MULTIWEB_PASSWORD=$PASSWORD
 MULTIWEB_BASE_DOMAIN=$BASE_DOMAIN
 MULTIWEB_EMAIL=$EMAIL
 EOF
+  chown multiweb:multiweb /etc/multiweb.env
   chmod 600 /etc/multiweb.env
+else
+  if [ -f /etc/multiweb.env ]; then
+    chown multiweb:multiweb /etc/multiweb.env
+    chmod 600 /etc/multiweb.env
+  fi
 fi
 
 echo "==> Configuration du service systemd…"

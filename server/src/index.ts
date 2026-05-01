@@ -26,6 +26,25 @@ import {
   removeApiToken,
 } from "./meta.ts";
 import { listDomains, resolveDomain } from "./domains.ts";
+import { SESSION_PREFIX, createSession, revokeSession } from "./sessions.ts";
+import { checkLoginAllowed, recordLoginFailure, resetLoginFailures } from "./ratelimit.ts";
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+function extractBearer(req: Request): string | null {
+  const auth = req.headers.get("authorization");
+  if (!auth) return null;
+  const [scheme, token] = auth.split(" ");
+  if (scheme !== "Bearer" || !token) return null;
+  return token;
+}
 
 const PUBLIC_DIR = path.join(import.meta.dir, "..", "public");
 
@@ -56,13 +75,29 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
   return body as Record<string, unknown>;
 }
 
-async function handleApi(req: Request, pathname: string): Promise<Response> {
+async function handleApi(req: Request, pathname: string, clientIp: string): Promise<Response> {
   if (pathname === "/api/login" && req.method === "POST") {
+    const gate = checkLoginAllowed(clientIp);
+    if (!gate.allowed) {
+      return json(
+        { error: `Trop de tentatives. Réessayez dans ${gate.retryAfter}s.` },
+        { status: 429, headers: { "retry-after": String(gate.retryAfter ?? 60) } }
+      );
+    }
     const body = await req.json().catch(() => ({}));
-    if (!body || typeof body !== "object" || (body as { password?: unknown }).password !== config.password) {
+    const submitted = (body && typeof body === "object" ? (body as { password?: unknown }).password : undefined);
+    if (typeof submitted !== "string" || !timingSafeEqual(submitted, config.password)) {
+      recordLoginFailure(clientIp);
       return json({ error: "Mot de passe incorrect" }, { status: 401 });
     }
-    return json({ token: config.password });
+    resetLoginFailures(clientIp);
+    return json({ token: createSession() });
+  }
+
+  if (pathname === "/api/logout" && req.method === "POST") {
+    const token = extractBearer(req);
+    if (token && token.startsWith(SESSION_PREFIX)) revokeSession(token);
+    return json({ ok: true });
   }
 
   if (pathname === "/api/me" && req.method === "GET") {
@@ -284,11 +319,13 @@ Bun.serve({
   port: config.port,
   hostname: config.hostname,
   maxRequestBodySize: config.maxUploadMb * 1024 * 1024 + 1024 * 1024,
-  async fetch(req) {
+  async fetch(req, server) {
     const url = new URL(req.url);
+    const fwd = req.headers.get("x-forwarded-for");
+    const clientIp = fwd ? fwd.split(",")[0].trim() : (server.requestIP(req)?.address ?? "unknown");
     try {
       if (url.pathname.startsWith("/api/")) {
-        return await handleApi(req, url.pathname);
+        return await handleApi(req, url.pathname, clientIp);
       }
       return await serveStatic(url.pathname);
     } catch (err) {

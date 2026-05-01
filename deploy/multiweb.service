@@ -5,7 +5,8 @@ Wants=caddy.service
 
 [Service]
 Type=simple
-User=root
+User=multiweb
+Group=multiweb
 WorkingDirectory=/opt/multiweb/server
 EnvironmentFile=/etc/multiweb.env
 ExecStart=/usr/local/bin/bun run /opt/multiweb/server/src/index.ts
@@ -13,6 +14,19 @@ Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/var/www/sites
 
 [Install]
 WantedBy=multi-user.target

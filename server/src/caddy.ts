@@ -30,6 +30,13 @@ function buildCaddyfile(names: string[], metaBySite: Record<string, SiteMeta>): 
   lines.push("");
 
   lines.push(`${withScheme(config.dashboardHost)} {`);
+  lines.push(`    header {`);
+  lines.push(`        X-Frame-Options "DENY"`);
+  lines.push(`        X-Content-Type-Options "nosniff"`);
+  lines.push(`        Referrer-Policy "strict-origin-when-cross-origin"`);
+  lines.push(`        Permissions-Policy "interest-cohort=()"`);
+  lines.push(`        -Server`);
+  lines.push(`    }`);
   lines.push(`    reverse_proxy ${config.dashboardUpstream}`);
   lines.push(`    encode gzip`);
   lines.push("}");
@@ -47,6 +54,11 @@ function buildCaddyfile(names: string[], metaBySite: Record<string, SiteMeta>): 
       lines.push(`        ${m.auth.user} ${m.auth.passwordHash}`);
       lines.push(`    }`);
     }
+    lines.push(`    header {`);
+    lines.push(`        X-Content-Type-Options "nosniff"`);
+    lines.push(`        Referrer-Policy "strict-origin-when-cross-origin"`);
+    lines.push(`        -Server`);
+    lines.push(`    }`);
     lines.push(`    root * ${root}`);
     lines.push(`    encode gzip`);
     lines.push(`    try_files {path} /index.html`);

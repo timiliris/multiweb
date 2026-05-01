@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.ts";
@@ -198,22 +198,57 @@ export async function removeApiToken(id: string): Promise<boolean> {
     meta.apiTokens = meta.apiTokens.filter((t) => t.id !== id);
     removed = meta.apiTokens.length < before;
   });
+  if (removed) {
+    for (const [k, v] of tokenVerifyCache.entries()) {
+      if (v.tokenId === id) tokenVerifyCache.delete(k);
+    }
+    lastUsedFlush.delete(id);
+  }
   return removed;
+}
+
+const TOKEN_CACHE_TTL_MS = 10 * 60_000;
+const LAST_USED_FLUSH_MS = 60_000;
+const tokenVerifyCache = new Map<string, { tokenId: string; expiresAt: number }>();
+const lastUsedFlush = new Map<string, number>();
+
+const hashKey = (secret: string): string =>
+  createHash("sha256").update(secret).digest("hex");
+
+function maybeFlushLastUsed(id: string): void {
+  const now = Date.now();
+  const last = lastUsedFlush.get(id) ?? 0;
+  if (now - last < LAST_USED_FLUSH_MS) return;
+  lastUsedFlush.set(id, now);
+  updateMeta((m) => {
+    const t = m.apiTokens.find((x) => x.id === id);
+    if (t) t.lastUsedAt = now;
+  }).catch((err) => console.error("lastUsedAt persist failed:", err));
 }
 
 export async function findApiTokenBySecret(secret: string): Promise<ApiToken | undefined> {
   if (!secret.startsWith(API_TOKEN_PREFIX)) return undefined;
+  const key = hashKey(secret);
+  const now = Date.now();
+
+  const cached = tokenVerifyCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    const meta = await readMeta();
+    const t = meta.apiTokens.find((x) => x.id === cached.tokenId);
+    if (t) {
+      maybeFlushLastUsed(t.id);
+      return t;
+    }
+    tokenVerifyCache.delete(key);
+  }
+
   const meta = await readMeta();
   for (const token of meta.apiTokens) {
     const ok = await Bun.password.verify(secret, token.hash).catch(() => false);
     if (ok) {
-      const id = token.id;
-      const now = Date.now();
-      await updateMeta((m) => {
-        const t = m.apiTokens.find((x) => x.id === id);
-        if (t) t.lastUsedAt = now;
-      });
-      return { ...token, lastUsedAt: now };
+      tokenVerifyCache.set(key, { tokenId: token.id, expiresAt: now + TOKEN_CACHE_TTL_MS });
+      maybeFlushLastUsed(token.id);
+      return token;
     }
   }
   return undefined;

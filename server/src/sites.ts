@@ -55,28 +55,54 @@ export interface Site {
 
 const isUserSiteDir = (name: string): boolean => !name.startsWith(".");
 
+interface SiteCacheEntry {
+  mtime: number;
+  title: string | undefined;
+  size: number;
+}
+const siteInfoCache = new Map<string, SiteCacheEntry>();
+
+export function invalidateSiteCache(name?: string): void {
+  if (name) siteInfoCache.delete(name);
+  else siteInfoCache.clear();
+}
+
 export async function listSites(): Promise<Site[]> {
   await mkdir(config.sitesDir, { recursive: true });
   const entries = await readdir(config.sitesDir, { withFileTypes: true });
   const meta = await readMeta();
   const sites: Site[] = [];
+  const seen = new Set<string>();
+
   for (const e of entries) {
     if (!e.isDirectory() || !isUserSiteDir(e.name)) continue;
+    seen.add(e.name);
     const dir = path.join(config.sitesDir, e.name);
     const st = await stat(dir);
-    const title = await readTitle(dir);
+
+    let cached = siteInfoCache.get(e.name);
+    if (!cached || cached.mtime !== st.mtimeMs) {
+      const [title, size] = await Promise.all([readTitle(dir), dirSize(dir)]);
+      cached = { mtime: st.mtimeMs, title, size };
+      siteInfoCache.set(e.name, cached);
+    }
+
     const m = meta.sites[e.name];
     const site: Site = {
       name: e.name,
       url: `${config.scheme}://${e.name}.${config.baseDomain}`,
-      size: await dirSize(dir),
+      size: cached.size,
       updatedAt: st.mtimeMs,
     };
-    if (title !== undefined) site.title = title;
+    if (cached.title !== undefined) site.title = cached.title;
     if (m?.auth) site.auth = { user: m.auth.user };
     if (m?.customDomains && m.customDomains.length > 0) site.customDomains = m.customDomains;
     if (m?.note) site.note = m.note;
     sites.push(site);
+  }
+
+  for (const name of [...siteInfoCache.keys()]) {
+    if (!seen.has(name)) siteInfoCache.delete(name);
   }
   return sites.sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -204,6 +230,7 @@ export async function deleteSite(name: string): Promise<void> {
   const target = path.join(config.sitesDir, name);
   await rm(target, { recursive: true, force: true });
   await deleteSiteMeta(name);
+  invalidateSiteCache(name);
   await syncCaddy();
 }
 
@@ -223,6 +250,8 @@ export async function renameSite(from: string, to: string): Promise<void> {
 
   await rename(src, dst);
   await renameSiteMeta(from, to);
+  invalidateSiteCache(from);
+  invalidateSiteCache(to);
   await syncCaddy();
 }
 

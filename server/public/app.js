@@ -221,9 +221,16 @@ async function login(password) {
 }
 
 function logout() {
+  const previous = state.token;
   state.token = null;
   state.baseDomain = "";
   localStorage.removeItem(TOKEN_KEY);
+  if (previous) {
+    fetch("/api/logout", {
+      method: "POST",
+      headers: { authorization: `Bearer ${previous}` },
+    }).catch(() => {});
+  }
   if (location.hash) {
     location.hash = "";
     return;
