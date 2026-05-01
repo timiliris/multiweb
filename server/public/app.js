@@ -1,6 +1,8 @@
 const TOKEN_KEY = "multiweb-token";
+const THEME_KEY = "multiweb-theme";
 
-const $ = (sel) => document.querySelector(sel);
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
 
 const state = {
   token: localStorage.getItem(TOKEN_KEY) || null,
@@ -9,39 +11,24 @@ const state = {
   selectedFile: null,
 };
 
-function fmtSize(bytes) {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} ko`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} Mo`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} Go`;
+function fmtSize(b) {
+  if (b < 1024) return `${b} o`;
+  if (b < 1024 ** 2) return `${(b / 1024).toFixed(1)} ko`;
+  if (b < 1024 ** 3) return `${(b / 1024 ** 2).toFixed(1)} Mo`;
+  return `${(b / 1024 ** 3).toFixed(1)} Go`;
 }
 
 function fmtRelative(ts) {
-  const diff = Date.now() - ts;
-  const min = 60_000, hour = 60 * min, day = 24 * hour;
-  if (diff < min) return "à l'instant";
-  if (diff < hour) return `il y a ${Math.floor(diff / min)} min`;
-  if (diff < day) return `il y a ${Math.floor(diff / hour)} h`;
-  return `il y a ${Math.floor(diff / day)} j`;
+  const d = Date.now() - ts;
+  const min = 60_000, h = 60 * min, day = 24 * h;
+  if (d < min) return "à l'instant";
+  if (d < h) return `il y a ${Math.floor(d / min)} min`;
+  if (d < day) return `il y a ${Math.floor(d / h)} h`;
+  return `il y a ${Math.floor(d / day)} j`;
 }
 
-function fmtDate(date) {
-  return new Intl.DateTimeFormat("fr-FR", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  }).format(date);
-}
-
-function toRoman(n) {
-  const map = [["M", 1000], ["CM", 900], ["D", 500], ["CD", 400], ["C", 100], ["XC", 90], ["L", 50], ["XL", 40], ["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]];
-  let out = "";
-  for (const [s, v] of map) {
-    while (n >= v) { out += s; n -= v; }
-  }
-  return out || "I";
-}
-
-function slugify(input) {
-  return input
+function slugify(s) {
+  return s
     .toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9-]+/g, "-")
@@ -50,13 +37,15 @@ function slugify(input) {
 }
 
 function escape(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
 }
 
-async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
   if (state.token) headers.authorization = `Bearer ${state.token}`;
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(path, { ...opts, headers });
   let data = {};
   try { data = await res.json(); } catch {}
   if (res.status === 401) {
@@ -69,11 +58,25 @@ async function api(path, options = {}) {
   return data;
 }
 
-function toast(label, message, kind = "info") {
+function getTheme() {
+  return (
+    localStorage.getItem(THEME_KEY) ||
+    (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+  );
+}
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem(THEME_KEY, t);
+}
+function toggleTheme() {
+  setTheme(getTheme() === "dark" ? "light" : "dark");
+}
+
+function toast(label, msg, kind = "info") {
   const host = $("#toast-host");
   const el = document.createElement("div");
   el.className = `toast toast--${kind}`;
-  el.innerHTML = `<div class="toast__label">${escape(label)}</div><div>${escape(message)}</div>`;
+  el.innerHTML = `<div class="toast__label">${escape(label)}</div><div class="toast__msg">${escape(msg)}</div>`;
   host.appendChild(el);
   setTimeout(() => {
     el.classList.add("is-out");
@@ -99,7 +102,7 @@ function confirmModal({ title, body, okLabel = "Confirmer" }) {
 function showLogin() {
   $("#login-screen").hidden = false;
   $("#dashboard-screen").hidden = true;
-  setTimeout(() => $("#login-form input[name=password]")?.focus(), 50);
+  setTimeout(() => $("#login-form input[name=password]")?.focus(), 30);
 }
 
 async function showDashboard() {
@@ -108,9 +111,9 @@ async function showDashboard() {
   $("#login-screen").hidden = true;
   $("#dashboard-screen").hidden = false;
   $("#meta-domain").textContent = me.baseDomain;
+  $("#stat-domain").textContent = me.baseDomain;
   $("#domain-suffix").textContent = `.${me.baseDomain}`;
-  $("#meta-date").textContent = fmtDate(new Date());
-  $("#meta-edition").textContent = String(new Date().getFullYear());
+  $("#domain-pill").textContent = me.baseDomain;
   await refreshSites();
 }
 
@@ -134,16 +137,23 @@ function logout() {
 async function refreshSites() {
   const sites = await api("/api/sites");
   state.sites = sites;
+  $("#stat-count").textContent = String(sites.length);
+  const total = sites.reduce((a, s) => a + s.size, 0);
+  $("#stat-size").textContent = fmtSize(total);
+  $("#sites-count").textContent = `${sites.length} entrée${sites.length > 1 ? "s" : ""}`;
+
   const list = $("#sites-list");
   list.innerHTML = "";
-  $("#meta-count").textContent = String(sites.length);
-  $("#meta-count-s").textContent = sites.length > 1 ? "s" : "";
-  $("#sites-count").textContent = `${String(sites.length).padStart(2, "0")} entrée${sites.length > 1 ? "s" : ""}`;
 
   if (sites.length === 0) {
     list.innerHTML = `
       <div class="empty">
-        <div class="empty__title">Aucun site n'est encore publié.</div>
+        <div class="empty__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7l9-4 9 4M3 7v10l9 4 9-4V7M3 7l9 4 9-4M12 11v10"/>
+          </svg>
+        </div>
+        <div class="empty__title">Aucun site publié</div>
         <div class="empty__sub">Déposez une archive .zip ci-dessus pour commencer.</div>
       </div>`;
     return;
@@ -151,21 +161,23 @@ async function refreshSites() {
 
   sites.forEach((site, i) => {
     const el = document.createElement("article");
-    el.className = "site";
-    el.style.animation = `fade-in 0.4s ${i * 0.04}s backwards`;
+    el.className = "site fade-in";
+    el.style.animationDelay = `${i * 0.04}s`;
     el.innerHTML = `
-      <div class="site__index">${toRoman(i + 1)}</div>
       <div class="site__body">
-        <div class="site__name">${escape(site.name)}</div>
+        <div class="site__row">
+          <span class="site__name">${escape(site.name)}</span>
+          <span class="site__pill site__pill--live">live</span>
+        </div>
         <a class="site__url" href="${escape(site.url)}" target="_blank" rel="noopener">${escape(site.url)} ↗</a>
         <div class="site__meta">
-          ${fmtSize(site.size)}
+          <span>${fmtSize(site.size)}</span>
           <span class="site__meta-sep">·</span>
-          ${fmtRelative(site.updatedAt)}
+          <span>${fmtRelative(site.updatedAt)}</span>
         </div>
       </div>
       <div class="site__actions">
-        <button class="site__action site__action--danger" data-action="delete" data-name="${escape(site.name)}">Supprimer</button>
+        <button class="btn btn--ghost btn--sm" data-action="delete" data-name="${escape(site.name)}">Supprimer</button>
       </div>`;
     list.appendChild(el);
   });
@@ -174,13 +186,13 @@ async function refreshSites() {
 async function deleteSite(name) {
   const ok = await confirmModal({
     title: "Supprimer ce site ?",
-    body: `Le site <em>${escape(name)}</em> sera retiré du serveur ainsi que sa configuration HTTPS. Cette action est définitive.`,
+    body: `Le site <code>${escape(name)}</code> sera retiré du serveur ainsi que sa configuration HTTPS. Cette action est définitive.`,
     okLabel: "Supprimer",
   });
   if (!ok) return;
   try {
     await api(`/api/sites/${encodeURIComponent(name)}`, { method: "DELETE" });
-    toast("Retiré", `Le site « ${name} » a été supprimé.`, "ok");
+    toast("Retiré", `« ${name} » a été supprimé.`, "ok");
     await refreshSites();
   } catch (err) {
     toast("Erreur", err.message, "err");
@@ -208,35 +220,37 @@ function setSelectedFile(file) {
   const hint = $("#dropzone-hint");
   const sub = $("#dropzone-sub");
   if (file) {
-    hint.innerHTML = `<em>${escape(file.name)}</em>`;
-    sub.textContent = fmtSize(file.size).toUpperCase();
+    hint.textContent = file.name;
+    sub.textContent = fmtSize(file.size);
     dz.classList.add("has-file");
     if (!$("#site-name").value) {
       $("#site-name").value = slugify(file.name.replace(/\.zip$/i, ""));
     }
   } else {
-    hint.innerHTML = "Glissez votre archive <em>.zip</em>";
-    sub.textContent = "ou cliquez pour parcourir";
+    hint.textContent = "Glissez un fichier .zip";
+    sub.textContent = "Ou cliquez pour parcourir";
     dz.classList.remove("has-file");
   }
 }
 
-function setBtnLoading(btn, loading, labelText) {
+function setBtnLoading(btn, loading, label) {
   const labelEl = btn.querySelector(".btn__label");
-  const arrowEl = btn.querySelector(".btn__arrow");
+  const iconEl = btn.querySelector(".btn__icon");
   if (loading) {
     btn.disabled = true;
     btn.dataset.label = labelEl.textContent;
-    labelEl.innerHTML = `<span class="spinner"></span>${labelText || labelEl.textContent}`;
-    if (arrowEl) arrowEl.style.opacity = "0";
+    labelEl.innerHTML = `<span class="spinner"></span>${label || labelEl.textContent}`;
+    if (iconEl) iconEl.style.opacity = "0";
   } else {
     btn.disabled = false;
-    labelEl.textContent = btn.dataset.label || labelText || "";
-    if (arrowEl) arrowEl.style.opacity = "";
+    labelEl.textContent = btn.dataset.label || label || "";
+    if (iconEl) iconEl.style.opacity = "";
   }
 }
 
 function bind() {
+  $$("[data-theme-toggle]").forEach((b) => b.addEventListener("click", toggleTheme));
+
   $("#login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const pwd = e.target.password.value;
@@ -269,8 +283,8 @@ function bind() {
     })
   );
   dz.addEventListener("drop", (e) => {
-    const file = e.dataTransfer?.files?.[0];
-    if (file) setSelectedFile(file);
+    const f = e.dataTransfer?.files?.[0];
+    if (f) setSelectedFile(f);
   });
   $("#file-input").addEventListener("change", (e) => {
     setSelectedFile(e.target.files[0] || null);
@@ -302,24 +316,23 @@ function bind() {
   $("#sites-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
-    if (btn.dataset.action === "delete") {
-      await deleteSite(btn.dataset.name);
-    }
+    if (btn.dataset.action === "delete") await deleteSite(btn.dataset.name);
   });
 
   $("#site-name").addEventListener("input", (e) => {
     e.target.value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+  });
+
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+    if (!localStorage.getItem(THEME_KEY)) setTheme(e.matches ? "dark" : "light");
   });
 }
 
 async function init() {
   bind();
   if (state.token) {
-    try {
-      await showDashboard();
-    } catch {
-      logout();
-    }
+    try { await showDashboard(); }
+    catch { logout(); }
   } else {
     showLogin();
   }
