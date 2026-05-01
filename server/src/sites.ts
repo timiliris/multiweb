@@ -75,6 +75,7 @@ export async function deploySite(name: string, zipFile: File): Promise<void> {
 
     await cleanZipNoise(tmpDir);
     await flattenIfSingleDir(tmpDir);
+    await ensureIndexHtml(tmpDir, name);
 
     await rm(target, { recursive: true, force: true });
     await rename(tmpDir, target);
@@ -89,6 +90,24 @@ export async function deploySite(name: string, zipFile: File): Promise<void> {
 async function cleanZipNoise(dir: string): Promise<void> {
   for (const noise of ["__MACOSX", ".DS_Store"]) {
     await rm(path.join(dir, noise), { recursive: true, force: true });
+  }
+}
+
+async function ensureIndexHtml(dir: string, siteName: string): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = entries.filter((e) => e.isFile()).map((e) => e.name);
+
+  if (files.includes("index.html")) return;
+
+  const named = files.find((f) => f.toLowerCase() === `${siteName.toLowerCase()}.html`);
+  if (named) {
+    await rename(path.join(dir, named), path.join(dir, "index.html"));
+    return;
+  }
+
+  const htmlFiles = files.filter((f) => f.toLowerCase().endsWith(".html"));
+  if (htmlFiles.length === 1) {
+    await rename(path.join(dir, htmlFiles[0]), path.join(dir, "index.html"));
   }
 }
 
